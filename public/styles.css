@@ -1,0 +1,513 @@
+/* === KOUPELNY SYROVÝ – Brand CSS ===
+   Barvy: #179ED9 (firemní modrá), #1a1a1a, #ffffff
+   Font: Montserrat (Google Fonts)
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap');
+
+/* === RESET === */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --blue:        #179ED9;
+    --blue-dark:   #0f7ab0;
+    --blue-light:  #e8f6fd;
+    --black:       #1a1a1a;
+    --gray-dark:   #444444;
+    --gray-mid:    #888888;
+    --gray-light:  #f4f6f8;
+    --gray-border: #e2e6ea;
+    --white:       #ffffff;
+    --font:        'Montserrat', Arial, sans-serif;
+    --radius:      8px;
+    --radius-lg:   12px;
+    --shadow:      0 2px 12px rgba(0,0,0,0.08);
+    --shadow-md:   0 4px 24px rgba(0,0,0,0.12);
+}
+
+body {
+    font-family: var(--font);
+    background: var(--gray-light);
+    color: var(--black);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+.container {
+    max-width: 860px;
+    margin: 0 auto;
+    background: var(--white);
+    min-height: 100vh;
+    box-shadow: var(--shadow-md);
+}
+
+/* === HEADER === */
+header {
+    background: var(--white);
+    border-bottom: 3px solid var(--blue);
+    padding: 22px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.header-logo img {
+    height: 42px;
+    width: auto;
+}
+
+.header-meta {
+    font-size: 11px;
+    color: var(--gray-mid);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: right;
+}
+
+.header-meta span {
+    display: block;
+    color: var(--blue);
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+/* === MODRÝ PRUH === */
+.nav-bar {
+    background: var(--blue);
+    padding: 9px 40px;
+}
+
+.nav-bar p {
+    color: rgba(255,255,255,0.92);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+/* === MAIN === */
+main {
+    padding: 32px 40px 56px;
+}
+
+/* === ZÁKLADNÍ INFORMACE === */
+.basic-info {
+    background: var(--gray-light);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 28px;
+    border: 1px solid var(--gray-border);
+}
+
+.basic-info h2 {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--gray-border);
+}
+
+.basic-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+/* === LABELY A VSTUPY === */
+label {
+    display: block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gray-dark);
+    margin-bottom: 6px;
+    margin-top: 0;
+}
+
+select,
+input[type="date"],
+input[type="number"],
+input[type="text"] {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid var(--gray-border);
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-family: var(--font);
+    font-weight: 500;
+    color: var(--black);
+    background: var(--white);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+}
+
+select:focus,
+input:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(23, 158, 217, 0.12);
+}
+
+/* === VÝBĚR MÓDU === */
+.mode-selection {
+    margin: 28px 0;
+}
+
+.mode-selection h2 {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--gray-border);
+}
+
+.mode-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.mode-btn {
+    background: var(--white);
+    border: 1.5px solid var(--gray-border);
+    border-radius: var(--radius-lg);
+    padding: 20px 22px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--black);
+}
+
+.mode-btn:hover,
+.mode-btn.active {
+    border-color: var(--blue);
+    background: var(--blue-light);
+    box-shadow: var(--shadow);
+}
+
+.mode-btn small {
+    display: block;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--gray-mid);
+    margin-top: 5px;
+}
+
+/* === FORMULÁŘE === */
+.entry-form {
+    background: var(--gray-light);
+    border: 1px solid var(--gray-border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-top: 24px;
+}
+
+.entry-form h2 {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--gray-border);
+}
+
+.entry-form h3 {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gray-dark);
+    margin-top: 22px;
+    margin-bottom: 10px;
+}
+
+/* === CHECKBOXY === */
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 6px 0;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--white);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1.5px solid transparent;
+    user-select: none;
+}
+
+.checkbox-label:hover {
+    border-color: var(--blue);
+    background: var(--blue-light);
+}
+
+.checkbox-label input[type="checkbox"],
+.checkbox-label input[type="radio"] {
+    margin: 0 12px 0 0;
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    cursor: pointer;
+    accent-color: var(--blue);
+}
+
+.checkbox-label span {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--black);
+}
+
+/* === TLAČÍTKO === */
+.btn-primary,
+button[type="submit"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 13px 24px;
+    margin-top: 22px;
+    background: var(--blue);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+}
+
+.btn-primary:hover,
+button[type="submit"]:hover {
+    background: var(--blue-dark);
+    box-shadow: 0 4px 16px rgba(23, 158, 217, 0.35);
+}
+
+.btn-primary:active,
+button[type="submit"]:active {
+    transform: translateY(1px);
+    box-shadow: none;
+}
+
+/* === DNEŠNÍ SOUHRN === */
+.today-summary {
+    margin-top: 18px;
+    padding: 14px 18px;
+    background: var(--white);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--blue);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.today-summary h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-dark);
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.today-summary span {
+    color: var(--blue);
+    font-weight: 800;
+    font-size: 22px;
+    line-height: 1;
+}
+
+/* === VÝSLEDKY === */
+#results {
+    margin-top: 40px;
+    padding-top: 28px;
+    border-top: 1px solid var(--gray-border);
+}
+
+#results h2 {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 14px;
+}
+
+#recordsList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.record-item {
+    background: var(--white);
+    padding: 15px 18px;
+    border-radius: var(--radius);
+    border: 1px solid var(--gray-border);
+    border-left: 3px solid var(--blue);
+    font-size: 13px;
+    line-height: 1.7;
+    transition: box-shadow 0.15s;
+}
+
+.record-item:hover {
+    box-shadow: var(--shadow);
+}
+
+.record-item.bulk {
+    border-left-color: var(--black);
+}
+
+.record-item strong {
+    color: var(--blue);
+    font-weight: 700;
+}
+
+.record-item.bulk strong {
+    color: var(--black);
+}
+
+.record-item small {
+    color: var(--gray-mid);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+/* === PRÁZDNÝ STAV === */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--gray-mid);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* === DARK MODE === */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --black:       #e6edf3;
+        --gray-dark:   #c9d1d9;
+        --gray-mid:    #8b949e;
+        --gray-light:  #21262d;   /* dark3 — inputs */
+        --gray-border: #30363d;   /* border */
+        --white:       #161b22;   /* dark2 — cards */
+        --blue-light:  rgba(23,158,217,.1);
+        --shadow:      0 2px 12px rgba(0,0,0,.5);
+        --shadow-md:   0 4px 24px rgba(0,0,0,.7);
+    }
+
+    body       { background: #0d1117; }
+    .container { background: #161b22; box-shadow: none; border: 1px solid #30363d; }
+    header     { background: #161b22; border-bottom: 1px solid #30363d; }
+
+    .header-logo img { filter: brightness(0) invert(1); }
+
+    input[type="date"],
+    input[type="number"],
+    input[type="text"] {
+        color-scheme: dark;
+        background: #21262d;
+        border-color: #30363d;
+        color: #e6edf3;
+    }
+
+    /* select: NO color-scheme — causes WebKit to render native dark texture over custom background */
+    select {
+        -webkit-appearance: none;
+        appearance: none;
+        background-color: #21262d;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238b949e' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 14px center;
+        border-color: #30363d;
+        color: #e6edf3;
+    }
+
+    select option { background: #161b22; color: #e6edf3; }
+
+    select:focus,
+    input:focus {
+        border-color: var(--blue);
+        box-shadow: 0 0 0 3px rgba(23,158,217,.15);
+    }
+
+    .basic-info,
+    .section-block,
+    .entry-form {
+        background: #161b22;
+        border-color: #30363d;
+    }
+
+    .basic-info h2,
+    .section-block h2,
+    .entry-form h2 {
+        border-bottom-color: #30363d;
+    }
+
+    .checkbox-label          { background: #21262d; border-color: transparent; }
+    .checkbox-label:hover    { background: rgba(23,158,217,.1); border-color: var(--blue); }
+
+    .mode-btn                { background: #21262d; border-color: #30363d; color: #e6edf3; }
+    .mode-btn:hover,
+    .mode-btn.active         { background: rgba(23,158,217,.12); border-color: var(--blue); }
+
+    .record-item             { background: #21262d; border-color: #30363d; }
+    .today-summary           { background: #21262d; }
+}
+
+/* === RESPONSIVITA === */
+@media (max-width: 640px) {
+    header {
+        padding: 16px 20px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .nav-bar { padding: 9px 20px; }
+    main { padding: 20px 20px 40px; }
+
+    .basic-info-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .mode-buttons {
+        grid-template-columns: 1fr;
+    }
+}

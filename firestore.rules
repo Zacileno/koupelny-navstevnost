@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Zpětná vazba zákazníků – čtení i zápis z webu
+    match /cx_feedback/{document} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Záznamy návštěvnosti – čtení i zápis z webu
+    match /entries/{document} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Historická návštěvnost – pouze čtení
+    match /daily_summaries/{document} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Uživatelé pro výběr při zadávání zpětné vazby
+    match /users/{document} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Realizace – čtení i zápis z webu
+    match /realizace/{document} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}

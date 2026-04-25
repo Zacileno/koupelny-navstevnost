@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="favicon.ico">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CEO Dashboard – Koupelny Syrový</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+
+<!-- HEADER -->
+<header class="header">
+    <div class="header-left">
+        <div class="header-logo">
+            <img src="logo.png" alt="Koupelny Syrový">
+        </div>
+        <div class="header-divider"></div>
+        <span class="header-title">CEO Dashboard</span>
+    </div>
+    <div class="header-right">
+        <div class="live-dot"></div>
+        <span id="headerDate">–</span>
+    </div>
+</header>
+
+<div class="page">
+
+    <!-- MONTH BAR -->
+    <div class="month-bar">
+        <!-- Přepínač režimu -->
+        <div class="view-mode-tabs">
+            <button class="view-mode-btn active" data-mode="month">Měsíc</button>
+            <button class="view-mode-btn" data-mode="custom">Vlastní</button>
+        </div>
+
+        <!-- Měsíční navigace -->
+        <div id="monthNavWrap" class="month-nav">
+            <button class="month-nav-btn" id="prevMonth">&#8249;</button>
+            <div class="month-current" id="monthCurrent">–</div>
+            <button class="month-nav-btn" id="nextMonth">&#8250;</button>
+        </div>
+
+        <!-- Custom range (skrytý) -->
+        <div id="customRangeWrap" class="custom-range" style="display:none;">
+            <div class="filter-inline">
+                <label>Od</label>
+                <input type="date" id="customFrom">
+            </div>
+            <div class="filter-inline">
+                <label>Do</label>
+                <input type="date" id="customTo">
+            </div>
+        </div>
+
+        <div class="yoy-badge" id="yoyBadge">↕ Porovnání se stejným měsícem loni</div>
+
+        <div class="month-bar-right">
+            <div class="filter-inline">
+                <label>Studio</label>
+                <select id="studioFilter">
+                    <option value="all">Všechna studia</option>
+                    <option value="praha">Praha</option>
+                    <option value="brno">Brno</option>
+                    <option value="hradec">Hradec Králové</option>
+                    <option value="pardubice">Pardubice</option>
+                </select>
+            </div>
+            <button class="btn-refresh" id="refreshBtn">↻ Obnovit</button>
+        </div>
+    </div>
+
+    <!-- KPI -->
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Návštěvníci celkem</div>
+            <div class="kpi-value" id="kpiTotal">–</div>
+            <div class="kpi-compare" id="kpiTotalCmp">načítám…</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Noví</div>
+            <div class="kpi-value" id="kpiNovi">–</div>
+            <div class="kpi-compare" id="kpiNoviCmp">načítám…</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Opakovaní</div>
+            <div class="kpi-value" id="kpiOpak">–</div>
+            <div class="kpi-compare" id="kpiOpakCmp">načítám…</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Objednávky</div>
+            <div class="kpi-value" id="kpiObj">–</div>
+            <div class="kpi-compare" id="kpiObjCmp">načítám…</div>
+        </div>
+    </div>
+
+    <!-- LINE + YOY -->
+    <div class="grid-3">
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Návštěvnost <em>v čase</em></span>
+                <span class="panel-badge" id="lineChartBadge">–</span>
+            </div>
+            <div class="chart-wrap" style="height:240px;"><canvas id="lineChart"></canvas></div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Rok / <em>Rok</em></span>
+                <span class="panel-badge">YoY</span>
+            </div>
+            <div class="chart-wrap" style="height:170px;"><canvas id="yoyChart"></canvas></div>
+            <div id="yoyDelta" class="yoy-delta"></div>
+        </div>
+    </div>
+
+    <!-- STUDIA + ZDROJE -->
+    <div class="grid-2">
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Srovnání <em>studií</em></span>
+            </div>
+            <div class="chart-wrap" style="height:200px;"><canvas id="barChart"></canvas></div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Zdroje <em>návštěvníků</em></span>
+            </div>
+            <div class="chart-wrap" style="height:200px;"><canvas id="pieChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- FUNNEL -->
+    <div class="panel">
+        <div class="panel-header">
+            <span class="panel-title">Obchodní <em>funnel</em></span>
+            <div class="panel-header-controls">
+                <select id="funnelStudio">
+                    <option value="all">Všechna studia</option>
+                    <option value="praha">Praha</option>
+                    <option value="brno">Brno</option>
+                    <option value="hradec">Hradec Králové</option>
+                    <option value="pardubice">Pardubice</option>
+                </select>
+                <select id="funnelUser">
+                    <option value="all">Všichni obchodníci</option>
+                </select>
+            </div>
+        </div>
+        <div id="funnelBars"></div>
+    </div>
+
+    <!-- TABULKA -->
+    <div class="panel">
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="tabulka">📋 Tabulka</button>
+            <button class="tab-btn" data-tab="studia-detail">🏢 Studia detail</button>
+        </div>
+        <div class="tab-content active" id="tab-tabulka">
+            <table class="data-table">
+                <thead>
+                    <tr><th>Datum</th><th>Studio</th><th>Celkem</th><th>Noví</th><th>Opakovaní</th><th>Typ</th></tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">Načítám data…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="tab-content" id="tab-studia-detail">
+            <div class="chart-wrap" style="height:300px;"><canvas id="studiaDetailChart"></canvas></div>
+        </div>
+    </div>
+
+</div>
+
+<!-- FIREBASE -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+    import { getFirestore, collection, query, where, getDocs, orderBy, deleteDoc, updateDoc, doc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+    const firebaseConfig = {
+        apiKey: "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
+        authDomain: "koupelny-navstevnost.firebaseapp.com",
+        projectId: "koupelny-navstevnost",
+        storageBucket: "koupelny-navstevnost.firebasestorage.app",
+        messagingSenderId: "263800017951",
+        appId: "1:263800017951:web:012c10ee687fcadab9f12a",
+        measurementId: "G-9PH80D78DP"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    window.db = db;
+    window.firestoreModules = { collection, query, where, getDocs, orderBy, deleteDoc, updateDoc, doc };
+    console.log('✅ Firebase inicializován');
+</script>
+<script src="dashboard.js"></script>
+
+<!-- DETAIL MODAL -->
+<div class="modal-overlay" id="detailModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="detailTitle">Detail dne</h3>
+            <button class="modal-close" onclick="closeDetail()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="detailContent"></div>
+
+            <!-- EDIT FORM — skrytý, zobrazí se po kliknutí Upravit -->
+            <div id="editForm" class="edit-form hidden">
+                <h4>Upravit záznam</h4>
+                <div class="edit-form-grid">
+                    <div class="form-group">
+                        <label>Datum</label>
+                        <input type="date" id="editDate">
+                    </div>
+                    <div class="form-group">
+                        <label>Typ návštěvníka</label>
+                        <select id="editIsNew">
+                            <option value="true">🆕 Nový</option>
+                            <option value="false">🔁 Opakovaný</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="grid-column:1/-1;">
+                        <label>Zdroj návštěvy</label>
+                        <select id="editSource">
+                            <option value="instagram">Instagram</option>
+                            <option value="web">Web</option>
+                            <option value="facebook">Facebook</option>
+                            <option value="doporuceni">Doporučení</option>
+                            <option value="walkin">Walk-in</option>
+                            <option value="influencer-mammadomisha">Influencer – Mammadomisha</option>
+                            <option value="influencer-partlova">Influencer – Partlova</option>
+                            <option value="influencer-hustle">Influencer – Hustle and Chill</option>
+                            <option value="jine">Jiné</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="edit-form-actions">
+                    <button class="btn-save" onclick="saveEdit()">💾 Uložit změny</button>
+                    <button class="btn-cancel" onclick="document.getElementById('editForm').classList.add('hidden')">Zrušit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

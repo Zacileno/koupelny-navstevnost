@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="favicon.ico">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evidence návštěvnosti – Koupelny Syrový</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+
+        <!-- HEADER S LOGEM -->
+        <header>
+            <div class="header-logo">
+                <img src="logo.png" alt="Koupelny Syrový">
+            </div>
+            <div class="header-meta">
+                Evidence návštěvnosti
+                <span id="headerDate"></span>
+            </div>
+        </header>
+
+        <!-- MODRÝ PRUH -->
+        <div class="nav-bar">
+            <p>Interní nástroj &mdash; Denní zápis</p>
+        </div>
+
+        <main>
+
+            <!-- ZÁKLADNÍ NASTAVENÍ -->
+            <div class="basic-info">
+                <h2>Základní informace</h2>
+                <div class="basic-info-grid">
+                    <div>
+                        <label for="studio">Studio</label>
+                        <select id="studio" required>
+                            <option value="">Vyber studio...</option>
+                            <option value="praha">Praha</option>
+                            <option value="brno">Brno</option>
+                            <option value="hradec">Hradec Králové</option>
+                            <option value="pardubice">Pardubice</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="user">Obchodník</label>
+                        <select id="user" required>
+                            <option value="">Načítám...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="date">Datum</label>
+                        <input type="date" id="date" required>
+                    </div>
+                </div>
+            </div>
+
+           
+
+            <!-- FORMULÁŘ – JEDNOTLIVĚ -->
+            <div id="individualForm" class="entry-form">
+                <h2>Nový návštěvník</h2>
+
+                <form id="individualFormElement">
+                    <label for="source">Zdroj návštěvy</label>
+                    <select id="source" required>
+                        <option value="">Vyber zdroj...</option>
+                        <option value="instagram">Instagram</option>
+                        <option value="web">Web</option>
+                        <option value="facebook">Facebook</option>
+                        <option value="doporuceni">Doporučení</option>
+                        <option value="walkin">Walk-in (prošel kolem)</option>
+                        <option value="influencer-mammadomisha">Influencer – Mammadomisha</option>
+                        <option value="influencer-partlova">Influencer – Partlova</option>
+                        <option value="influencer-hustle">Influencer – Hustle and Chill</option>
+                        <option value="jine">Jiné</option>
+                    </select>
+
+                    <div class="checkbox-group" style="margin-top: 14px;">
+                        <label class="checkbox-label">
+                            <input type="radio" name="visitorType" id="isNew" value="new" required>
+                            <span>Nový návštěvník (první návštěva)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="radio" name="visitorType" id="isReturning" value="returning">
+                            <span>Opakovaná návštěva</span>
+                        </label>
+                    </div>
+
+                    <h3>Co řešil</h3>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="actKonzultace">
+                            <span>Konzultace</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="actDomluvenaSch">
+                            <span>Domluvená schůzka</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="actSchuzkaNavrh">
+                            <span>Schůzka nebo návrh na místě</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="actCenovaNabidka">
+                            <span>Cenová nabídka</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="actObjednavka">
+                            <span>Objednávka</span>
+                        </label>
+                    </div>
+
+                    <h3>Co chce</h3>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="wantsDelivery">
+                            <span>Dodání zboží</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="wantsRealization">
+                            <span>Realizaci</span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn-primary">Přidat návštěvníka</button>
+                </form>
+
+                <div id="todayVisitors" class="today-summary">
+                    <h3>Dnes přidáno: <span id="visitorCount">0</span> návštěvníků</h3>
+                </div>
+            </div>
+
+           
+
+            <!-- DNEŠNÍ ZÁZNAMY -->
+            <div id="results">
+                <h2>Dnešní záznamy</h2>
+                <div id="recordsList"></div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- FIREBASE SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, query, where, getDocs, orderBy } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
+            authDomain: "koupelny-navstevnost.firebaseapp.com",
+            projectId: "koupelny-navstevnost",
+            storageBucket: "koupelny-navstevnost.firebasestorage.app",
+            messagingSenderId: "263800017951",
+            appId: "1:263800017951:web:012c10ee687fcadab9f12a",
+            measurementId: "G-9PH80D78DP"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        window.db = db;
+        window.firestoreModules = { collection, addDoc, query, where, getDocs, orderBy };
+
+        console.log('Firebase inicializován');
+    </script>
+
+    <script>
+        // Nastav dnešní datum automaticky
+        document.getElementById('date').valueAsDate = new Date();
+
+        // Ukaž dnešní datum v headeru
+        const d = new Date();
+        document.getElementById('headerDate').textContent =
+            d.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    </script>
+
+    <script src="app.js"></script>
+</body>
+</html>

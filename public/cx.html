@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="favicon.ico">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CX Zpětná vazba – Koupelny Syrový</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* ─── Layout helpers ─── */
+        .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+        .form-group  { display: flex; flex-direction: column; }
+
+        /* Textarea */
+        textarea {
+            width: 100%;
+            padding: 11px 14px;
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-family: var(--font);
+            font-weight: 500;
+            color: var(--black);
+            background: var(--white);
+            transition: border-color .2s;
+            resize: vertical;
+            min-height: 88px;
+            outline: none;
+        }
+        textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(23,158,217,.12); }
+
+        /* Section cards */
+        .section-block {
+            background: var(--gray-light);
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .section-block h2 {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            color: var(--blue);
+            margin-bottom: 18px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--gray-border);
+        }
+
+        /* Rating question labels — readable, not all-caps */
+        .rating-question-label {
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0 !important;
+            text-transform: none !important;
+            color: var(--black) !important;
+            margin-bottom: 10px !important;
+        }
+        .rating-question-label span { font-weight: 500; color: var(--gray-mid); }
+
+        /* Rating buttons */
+        .rating-group { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 4px; }
+        .rating-btn {
+            width: 44px;
+            height: 44px;
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius);
+            background: var(--white);
+            font-family: var(--font);
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--gray-dark);
+            cursor: pointer;
+            transition: all .15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .rating-btn:hover            { border-color: var(--blue); color: var(--blue); background: var(--blue-light); }
+        .rating-btn.selected         { color: #fff; }
+        .rating-btn.selected.low     { background: #f85149; border-color: #f85149; }
+        .rating-btn.selected.mid     { background: #d29922; border-color: #d29922; }
+        .rating-btn.selected.high    { background: #3fb950; border-color: #3fb950; }
+
+        .rating-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 7px;
+            font-size: 10px;
+            color: var(--gray-mid);
+            font-weight: 600;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+        }
+
+        /* Score display */
+        .score-display {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 16px 22px;
+            background: var(--white);
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius);
+            margin-top: 8px;
+        }
+        .score-value  { font-size: 42px; font-weight: 300; color: var(--blue); line-height: 1; transition: color .3s; }
+        .score-denom  { font-size: 15px; color: var(--gray-mid); font-weight: 600; }
+        .score-hint   { margin-left: auto; font-size: 11px; color: var(--gray-mid); font-weight: 500; text-align: right; }
+
+        /* Toast — matches realizace.html style */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: #3fb950;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 13px 28px;
+            border-radius: 10px;
+            letter-spacing: .5px;
+            transition: transform .35s cubic-bezier(.34,1.56,.64,1);
+            z-index: 999;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+        .toast.show  { transform: translateX(-50%) translateY(0); }
+        .toast.error { background: #f85149; }
+
+        /* Dimmed rating section */
+        .section-block.dimmed { opacity: 0.45; pointer-events: none; }
+        .section-block.dimmed h2::after {
+            content: " — vyplňte až po dokončeném hovoru";
+            font-size: 9px;
+            color: var(--gray-mid);
+            text-transform: none;
+            font-weight: 500;
+            letter-spacing: 0;
+        }
+
+        /* ─── Dark mode — exact realizace.html palette ─── */
+        @media (prefers-color-scheme: dark) {
+            .section-block {
+                background: #161b22;
+                border-color: #30363d;
+            }
+            .section-block h2 {
+                color: #C5A66B;
+                border-bottom-color: #30363d;
+            }
+            textarea {
+                background: #21262d;
+                border-color: #30363d;
+                color: #e6edf3;
+            }
+            textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(23,158,217,.15); }
+            .rating-btn {
+                background: #21262d;
+                border-color: #30363d;
+                color: #c9d1d9;
+            }
+            .rating-btn:hover {
+                background: rgba(23,158,217,.12);
+                border-color: var(--blue);
+                color: var(--blue);
+            }
+            .score-display {
+                background: #21262d;
+                border-color: #30363d;
+            }
+            .rating-labels          { color: #8b949e; }
+            .rating-question-label  { color: #e6edf3 !important; }
+            .rating-question-label span { color: #8b949e; }
+        }
+
+        /* ─── Responsive ─── */
+        @media (max-width: 640px) {
+            .form-grid-2, .form-grid-3 { grid-template-columns: 1fr; }
+            .rating-btn   { width: 36px; height: 36px; font-size: 12px; }
+            .rating-group { gap: 5px; }
+            .score-display { padding: 14px 18px; }
+            .score-value  { font-size: 34px; }
+            .score-hint   { display: none; }
+        }
+        @media (max-width: 400px) {
+            .rating-btn   { width: 30px; height: 30px; font-size: 11px; }
+            .rating-group { gap: 4px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <!-- HEADER -->
+        <header>
+            <div class="header-logo">
+                <img src="logo.png" alt="Koupelny Syrový">
+            </div>
+            <div class="header-meta">
+                CX Zpětná vazba
+                <span id="headerDate"></span>
+            </div>
+        </header>
+
+        <!-- MODRÝ PRUH -->
+        <div class="nav-bar">
+            <p>Interní nástroj &mdash; Zákaznická zpětná vazba</p>
+        </div>
+
+        <main>
+            <form id="cxForm">
+
+                <!-- 1. KONTAKTNÍ INFORMACE -->
+                <div class="section-block">
+                    <h2>Kontaktní informace zákazníka</h2>
+                    <div class="form-grid-2">
+                        <div class="form-group">
+                            <label for="telefon">Telefon</label>
+                            <input type="text" id="telefon" placeholder="+420 xxx xxx xxx">
+                        </div>
+                        <div class="form-group">
+                            <label for="jmeno">Jméno</label>
+                            <input type="text" id="jmeno" placeholder="Jméno zákazníka">
+                        </div>
+                        <div class="form-group">
+                            <label for="email">E-mail</label>
+                            <input type="text" id="email" placeholder="email@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="firma">Firma</label>
+                            <input type="text" id="firma" placeholder="Název firmy (nepovinné)">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. OBJEDNÁVKA -->
+                <div class="section-block">
+                    <h2>Informace o objednávce</h2>
+                    <div class="form-grid-3">
+                        <div class="form-group">
+                            <label for="stredisko">Středisko</label>
+                            <select id="stredisko" required>
+                                <option value="">Vyber středisko...</option>
+                                <option value="Praha">Praha</option>
+                                <option value="Pardubice">Pardubice</option>
+                                <option value="Hradec">Hradec</option>
+                                <option value="Brno">Brno</option>
+                                <option value="Eshop">Eshop</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="obchodnik">Obchodník</label>
+                            <select id="obchodnik" required>
+                                <option value="">Načítám...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="sluzba">Služba</label>
+                            <select id="sluzba" required>
+                                <option value="">Vyber...</option>
+                                <option value="Zboží">Zboží</option>
+                                <option value="Realizace">Realizace</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cisloObjednavky">Číslo objednávky</label>
+                            <input type="text" id="cisloObjednavky" placeholder="např. 2024-001">
+                        </div>
+                        <div class="form-group">
+                            <label for="datumObjednavky">Datum objednávky</label>
+                            <input type="date" id="datumObjednavky">
+                        </div>
+                        <div class="form-group">
+                            <label for="celkem">Celkem (Kč)</label>
+                            <input type="text" id="celkem" placeholder="např. 45 000">
+                        </div>
+                    </div>
+                    <div style="margin-top: 14px;" class="form-group">
+                        <label for="stavObjednavky">Stav objednávky</label>
+                        <select id="stavObjednavky" required>
+                            <option value="">Vyber...</option>
+                            <option value="Rok po dodání">Rok po dodání</option>
+                            <option value="Po realizaci">Po realizaci</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 3. KONTAKT -->
+                <div class="section-block">
+                    <h2>Informace o kontaktu</h2>
+                    <div class="form-grid-2">
+                        <div class="form-group">
+                            <label for="datumKontaktu">Datum kontaktu</label>
+                            <input type="date" id="datumKontaktu" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="stavHovoru">Stav hovoru</label>
+                            <select id="stavHovoru" required>
+                                <option value="">Vyber...</option>
+                                <option value="Dokončeno">Dokončeno</option>
+                                <option value="Nezvednutý hovor">Nezvednutý hovor</option>
+                                <option value="Zavolat jindy">Zavolat jindy</option>
+                                <option value="Již kontaktováno">Již kontaktováno</option>
+                                <option value="Až bude hotové">Až bude hotové</option>
+                                <option value="Nemá zájem">Nemá zájem</option>
+                                <option value="Domluven termín">Domluven termín</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-top: 14px;" class="form-group">
+                        <label for="poznamkyHovoru">Poznámky k hovoru</label>
+                        <textarea id="poznamkyHovoru" placeholder="Poznámky, detaily rozhovoru..."></textarea>
+                    </div>
+                </div>
+
+                <!-- 4. HODNOCENÍ -->
+                <div class="section-block" id="ratingSection">
+                    <h2>Hodnocení zákazníka</h2>
+
+                    <div style="margin-bottom: 24px;">
+                        <label class="rating-question-label">Spokojenost <span>(0 = nejhorší, 10 = nejlepší)</span></label>
+                        <div class="rating-group" id="spokojenostBtns"></div>
+                        <div class="rating-labels">
+                            <span>Nespokojený</span>
+                            <span>Nadšený</span>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 24px;">
+                        <label class="rating-question-label">Doporučení <span>(1 = nedoporučil by, 10 = určitě doporučí)</span></label>
+                        <div class="rating-group" id="doporuceníBtns"></div>
+                        <div class="rating-labels">
+                            <span>Nedoporučil by</span>
+                            <span>Určitě doporučí</span>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 24px;" class="form-group">
+                        <label for="selByZnovu">Šel by znovu</label>
+                        <select id="selByZnovu">
+                            <option value="">Vyber...</option>
+                            <option value="Ano">Ano</option>
+                            <option value="Spíše ano">Spíše ano</option>
+                            <option value="Nevím">Nevím</option>
+                            <option value="Spíše ne">Spíše ne</option>
+                            <option value="Ne">Ne</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 24px;" class="form-group">
+                        <label for="coZlepsit">Co zlepšit</label>
+                        <textarea id="coZlepsit" placeholder="Co by zákazník zlepšil, připomínky..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Celkové hodnocení</label>
+                        <div class="score-display">
+                            <span class="score-value" id="celkoveHodnoceni">–</span>
+                            <span class="score-denom">/ 10</span>
+                            <span class="score-hint">Průměr spokojenosti<br>a doporučení</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-primary" id="submitBtn">Uložit zpětnou vazbu</button>
+
+            </form>
+        </main>
+    </div>
+
+    <!-- TOAST -->
+    <div class="toast" id="toast"></div>
+
+    <!-- FIREBASE SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, query, orderBy }
+            from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
+            authDomain: "koupelny-navstevnost.firebaseapp.com",
+            projectId: "koupelny-navstevnost",
+            storageBucket: "koupelny-navstevnost.firebasestorage.app",
+            messagingSenderId: "263800017951",
+            appId: "1:263800017951:web:012c10ee687fcadab9f12a",
+            measurementId: "G-9PH80D78DP"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        window.db = db;
+        window.firestoreModules = { collection, addDoc, getDocs, query, orderBy };
+
+        // Load users from Firestore
+        async function loadUsers() {
+            const sel = document.getElementById('obchodnik');
+            try {
+                const snap = await getDocs(query(collection(db, 'users'), orderBy('name')));
+                sel.innerHTML = '<option value="">Vyber obchodníka...</option>';
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const name = d.name || d.displayName || doc.id;
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    sel.appendChild(opt);
+                });
+            } catch {
+                // Fallback without orderBy (missing index)
+                try {
+                    const snap = await getDocs(collection(db, 'users'));
+                    sel.innerHTML = '<option value="">Vyber obchodníka...</option>';
+                    snap.forEach(doc => {
+                        const d = doc.data();
+                        const name = d.name || d.displayName || doc.id;
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name;
+                        sel.appendChild(opt);
+                    });
+                } catch (e2) {
+                    sel.innerHTML = '<option value="">Chyba načítání</option>';
+                    console.error('Nelze načíst uživatele:', e2);
+                }
+            }
+        }
+        loadUsers();
+
+        console.log('✅ Firebase CX inicializován');
+    </script>
+
+    <script>
+        // Header date
+        const d = new Date();
+        document.getElementById('headerDate').textContent =
+            d.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+        // Default contact date = today
+        document.getElementById('datumKontaktu').valueAsDate = new Date();
+
+        // Rating state
+        let spokojenost = null;
+        let doporuceni  = null;
+
+        // Rating color class
+        function ratingClass(v) {
+            if (v <= 4)  return 'low';
+            if (v <= 7)  return 'mid';
+            return 'high';
+        }
+
+        // Build a row of rating buttons
+        function buildRatingBtns(containerId, min, max, onSelect) {
+            const container = document.getElementById(containerId);
+            for (let i = min; i <= max; i++) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'rating-btn';
+                btn.textContent = i;
+                btn.dataset.value = i;
+                btn.addEventListener('click', () => {
+                    container.querySelectorAll('.rating-btn').forEach(b => b.className = 'rating-btn');
+                    btn.className = `rating-btn selected ${ratingClass(i)}`;
+                    onSelect(i);
+                    updateCelkove();
+                });
+                container.appendChild(btn);
+            }
+        }
+
+        buildRatingBtns('spokojenostBtns', 0, 10, v => { spokojenost = v; });
+        buildRatingBtns('doporuceníBtns',  1, 10, v => { doporuceni  = v; });
+
+        function updateCelkove() {
+            const el = document.getElementById('celkoveHodnoceni');
+            if (spokojenost !== null && doporuceni !== null) {
+                const avg = ((spokojenost + doporuceni) / 2).toFixed(1);
+                el.textContent = avg;
+                const score = parseFloat(avg);
+                el.style.color = score <= 4 ? '#f85149' : score <= 7 ? '#d29922' : '#3fb950';
+            } else {
+                el.textContent = '–';
+                el.style.color = '';
+            }
+        }
+
+        // Dim rating section unless call is Dokončeno
+        document.getElementById('stavHovoru').addEventListener('change', function () {
+            const ratingSection = document.getElementById('ratingSection');
+            if (this.value === 'Dokončeno') {
+                ratingSection.classList.remove('dimmed');
+            } else {
+                ratingSection.classList.add('dimmed');
+            }
+        });
+        // Initial state — dimmed
+        document.getElementById('ratingSection').classList.add('dimmed');
+
+        // Toast helper
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = `toast ${type} show`;
+            setTimeout(() => t.classList.remove('show'), 3500);
+        }
+
+        // Submit
+        document.getElementById('cxForm').addEventListener('submit', async e => {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Ukládám...';
+
+            const data = {
+                telefon:          document.getElementById('telefon').value.trim(),
+                jmeno:            document.getElementById('jmeno').value.trim(),
+                email:            document.getElementById('email').value.trim(),
+                firma:            document.getElementById('firma').value.trim(),
+                stredisko:        document.getElementById('stredisko').value,
+                obchodnik:        document.getElementById('obchodnik').value,
+                sluzba:           document.getElementById('sluzba').value,
+                cisloObjednavky:  document.getElementById('cisloObjednavky').value.trim(),
+                datumObjednavky:  document.getElementById('datumObjednavky').value,
+                celkem:           document.getElementById('celkem').value.trim(),
+                stavObjednavky:   document.getElementById('stavObjednavky').value,
+                datumKontaktu:    document.getElementById('datumKontaktu').value,
+                stavHovoru:       document.getElementById('stavHovoru').value,
+                poznamkyHovoru:   document.getElementById('poznamkyHovoru').value.trim(),
+                spokojenost:      spokojenost,
+                doporuceni:       doporuceni,
+                selByZnovu:       document.getElementById('selByZnovu').value,
+                coZlepsit:        document.getElementById('coZlepsit').value.trim(),
+                celkoveHodnoceni: (spokojenost !== null && doporuceni !== null)
+                                    ? parseFloat(((spokojenost + doporuceni) / 2).toFixed(1))
+                                    : null,
+                createdAt: new Date().toISOString()
+            };
+
+            try {
+                const { collection, addDoc } = window.firestoreModules;
+                await addDoc(collection(window.db, 'cx_feedback'), data);
+                showToast('✅ Zpětná vazba byla uložena!', 'success');
+
+                // Reset
+                e.target.reset();
+                spokojenost = null;
+                doporuceni  = null;
+                document.querySelectorAll('.rating-btn').forEach(b => b.className = 'rating-btn');
+                document.getElementById('celkoveHodnoceni').textContent = '–';
+                document.getElementById('celkoveHodnoceni').style.color = '';
+                document.getElementById('datumKontaktu').valueAsDate = new Date();
+                document.getElementById('ratingSection').classList.add('dimmed');
+            } catch (err) {
+                console.error(err);
+                showToast('❌ Chyba při ukládání: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Uložit zpětnou vazbu';
+            }
+        });
+    </script>
+</body>
+</html>

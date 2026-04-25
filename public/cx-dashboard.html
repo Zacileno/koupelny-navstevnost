@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="favicon.ico">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CX Dashboard – Koupelny Syrový</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* ─── Dashboard grid ─── */
+        .dash-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .dash-grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .dash-grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        /* ─── KPI karta ─── */
+        .kpi-card {
+            background: var(--gray-light);
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius-lg);
+            padding: 20px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .kpi-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: var(--gray-mid);
+        }
+        .kpi-value {
+            font-size: 36px;
+            font-weight: 300;
+            color: var(--blue);
+            line-height: 1.1;
+        }
+        .kpi-sub {
+            font-size: 11px;
+            color: var(--gray-mid);
+            font-weight: 500;
+        }
+        .kpi-card.green .kpi-value { color: #3fb950; }
+        .kpi-card.red   .kpi-value { color: #f85149; }
+        .kpi-card.gold  .kpi-value { color: #d29922; }
+
+        /* ─── Section block (stejné jako cx.html) ─── */
+        .section-block {
+            background: var(--gray-light);
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .section-block h2 {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            color: var(--blue);
+            margin-bottom: 18px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--gray-border);
+        }
+
+        /* ─── Filtry ─── */
+        .filters {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+        .filters select, .filters input {
+            padding: 8px 12px;
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-family: var(--font);
+            font-weight: 500;
+            color: var(--black);
+            background: var(--white);
+            outline: none;
+            cursor: pointer;
+        }
+        .filters select:focus, .filters input:focus {
+            border-color: var(--blue);
+        }
+        .filter-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--gray-mid);
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            white-space: nowrap;
+        }
+
+        /* ─── Bar chart ─── */
+        .bar-chart { display: flex; flex-direction: column; gap: 10px; }
+        .bar-row {
+            display: grid;
+            grid-template-columns: 120px 1fr 48px;
+            align-items: center;
+            gap: 10px;
+        }
+        .bar-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--black);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .bar-track {
+            height: 10px;
+            background: var(--gray-border);
+            border-radius: 99px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 99px;
+            background: var(--blue);
+            transition: width .6s cubic-bezier(.4,0,.2,1);
+        }
+        .bar-fill.green { background: #3fb950; }
+        .bar-fill.gold  { background: #d29922; }
+        .bar-val {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--gray-mid);
+            text-align: right;
+        }
+
+        /* ─── Tabulka posledních záznamů ─── */
+        .cx-table-wrap { overflow-x: auto; }
+        .cx-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .cx-table th {
+            text-align: left;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: var(--gray-mid);
+            padding: 0 12px 10px 0;
+            border-bottom: 1px solid var(--gray-border);
+            white-space: nowrap;
+        }
+        .cx-table td {
+            padding: 10px 12px 10px 0;
+            border-bottom: 1px solid var(--gray-border);
+            vertical-align: top;
+            color: var(--black);
+            font-weight: 500;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .cx-table tr:last-child td { border-bottom: none; }
+        .cx-table tr:hover td { background: var(--gray-light); }
+
+        /* ─── Badge ─── */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 99px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .04em;
+        }
+        .badge-green  { background: rgba(63,185,80,.15);  color: #3fb950; }
+        .badge-red    { background: rgba(248,81,73,.15);  color: #f85149; }
+        .badge-gold   { background: rgba(210,153,34,.15); color: #d29922; }
+        .badge-gray   { background: var(--gray-border);   color: var(--gray-mid); }
+        .badge-blue   { background: rgba(23,158,217,.12); color: var(--blue); }
+
+        /* ─── Score chip ─── */
+        .score-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .score-chip.high { background: rgba(63,185,80,.15);  color: #3fb950; }
+        .score-chip.mid  { background: rgba(210,153,34,.15); color: #d29922; }
+        .score-chip.low  { background: rgba(248,81,73,.15);  color: #f85149; }
+        .score-chip.none { background: var(--gray-border);   color: var(--gray-mid); font-size: 10px; }
+
+        /* ─── Doughnut (CSS-only) ─── */
+        .donut-wrap {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+        .donut-canvas {
+            width: 120px;
+            height: 120px;
+            flex-shrink: 0;
+        }
+        .donut-legend { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .legend-pct {
+            margin-left: auto;
+            font-weight: 700;
+            color: var(--gray-mid);
+        }
+
+        /* ─── Loading state ─── */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--gray-mid);
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .loading::before {
+            content: '';
+            display: block;
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--gray-border);
+            border-top-color: var(--blue);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Dark mode ─── */
+        @media (prefers-color-scheme: dark) {
+            .kpi-card, .section-block {
+                background: #161b22;
+                border-color: #30363d;
+            }
+            .section-block h2 { color: #C5A66B; border-bottom-color: #30363d; }
+            .bar-track         { background: #30363d; }
+            .cx-table th       { color: #8b949e; border-bottom-color: #30363d; }
+            .cx-table td       { color: #e6edf3; border-bottom-color: #30363d; }
+            .cx-table tr:hover td { background: #161b22; }
+            .filters select, .filters input {
+                background: #21262d;
+                border-color: #30363d;
+                color: #e6edf3;
+            }
+        }
+
+        /* ─── Nav tabs ─── */
+        .nav-tab {
+            display: inline-block;
+            padding: 10px 16px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            transition: color 0.15s, background 0.15s;
+        }
+        .nav-tab:hover { color: #fff; }
+        .nav-tab.active {
+            color: #fff;
+            background: rgba(0,0,0,0.15);
+        }
+
+        /* ─── Responsive ─── */
+        @media (max-width: 900px) {
+            .dash-grid   { grid-template-columns: 1fr 1fr; }
+            .dash-grid-3 { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 600px) {
+            .dash-grid, .dash-grid-2, .dash-grid-3 { grid-template-columns: 1fr; }
+            .bar-row { grid-template-columns: 90px 1fr 36px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- HEADER -->
+    <header>
+        <div class="header-logo">
+            <img src="logo.png" alt="Koupelny Syrový">
+        </div>
+        <div class="header-meta">
+            CX Dashboard
+            <span id="headerDate"></span>
+        </div>
+    </header>
+    <div class="nav-bar" style="display:flex; align-items:center; gap:0; padding:0 40px;">
+        <a href="index.html"        class="nav-tab">Návštěvnost</a>
+        <a href="cx.html"           class="nav-tab">Zadat zpětnou vazbu</a>
+        <a href="cx-dashboard.html" class="nav-tab active">CX Dashboard</a>
+    </div>
+
+    <main>
+
+        <!-- FILTRY -->
+        <div class="section-block" style="padding: 16px 24px;">
+            <div class="filters">
+                <span class="filter-label">Filtr:</span>
+                <select id="filterStredisko">
+                    <option value="">Všechna střediska</option>
+                    <option>Praha</option>
+                    <option>Pardubice</option>
+                    <option>Hradec</option>
+                    <option>Brno</option>
+                    <option>Eshop</option>
+                </select>
+                <select id="filterSluzba">
+                    <option value="">Vše (zboží + realizace)</option>
+                    <option value="zboží">Zboží</option>
+                    <option value="realizace">Realizace</option>
+                </select>
+                <select id="filterObdobi">
+                    <option value="90">Posledních 90 dní</option>
+                    <option value="30">Posledních 30 dní</option>
+                    <option value="365">Posledních 12 měsíců</option>
+                    <option value="0">Vše</option>
+                </select>
+                <select id="filterStavHovoru">
+                    <option value="">Všechny stavy hovoru</option>
+                    <option>Dokončeno</option>
+                    <option>Nezvednutý hovor</option>
+                    <option>Zavolat jindy</option>
+                    <option>Již kontaktováno</option>
+                    <option>Až bude hotové</option>
+                    <option>Nemá zájem</option>
+                    <option>Domluven termín</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- KPI KARTY -->
+        <div class="dash-grid" id="kpiGrid">
+            <div class="loading" style="grid-column: 1/-1">Načítám data…</div>
+        </div>
+
+        <!-- GRAFY: NPS + Stavy hovorů -->
+        <div class="dash-grid-2">
+            <div class="section-block">
+                <h2>Průměrné skóre dle střediska</h2>
+                <div class="bar-chart" id="chartStredisko">
+                    <div class="loading">Načítám…</div>
+                </div>
+            </div>
+            <div class="section-block">
+                <h2>Stavy hovorů</h2>
+                <div class="donut-wrap">
+                    <canvas class="donut-canvas" id="donutCanvas"></canvas>
+                    <div class="donut-legend" id="donutLegend">
+                        <div class="loading">Načítám…</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GRAFY: Znovu + Služba -->
+        <div class="dash-grid-3">
+            <div class="section-block">
+                <h2>Šel by znovu?</h2>
+                <div class="bar-chart" id="chartZnovu">
+                    <div class="loading">Načítám…</div>
+                </div>
+            </div>
+            <div class="section-block">
+                <h2>Skóre dle obchodníka</h2>
+                <div class="bar-chart" id="chartObchodnik">
+                    <div class="loading">Načítám…</div>
+                </div>
+            </div>
+            <div class="section-block">
+                <h2>Zboží vs. Realizace</h2>
+                <div class="bar-chart" id="chartSluzba">
+                    <div class="loading">Načítám…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- POSLEDNÍCH 50 ZÁZNAMŮ -->
+        <div class="section-block">
+            <h2>Poslední záznamy <span id="tableCount" style="font-weight:500;opacity:.6"></span></h2>
+            <div class="cx-table-wrap">
+                <table class="cx-table" id="cxTable">
+                    <thead>
+                        <tr>
+                            <th>Datum</th>
+                            <th>Jméno</th>
+                            <th>Středisko</th>
+                            <th>Obchodník</th>
+                            <th>Služba</th>
+                            <th>Stav hovoru</th>
+                            <th>Spok.</th>
+                            <th>Dopor.</th>
+                            <th>Znovu?</th>
+                            <th>Pozn.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cxTableBody">
+                        <tr><td colspan="10" class="loading">Načítám záznamy…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<!-- FIREBASE SDK -->
+<script type="module">
+import { initializeApp }  from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getFirestore, collection, getDocs, query, orderBy, limit, where }
+    from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+const firebaseConfig = {
+    apiKey:            "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
+    authDomain:        "koupelny-navstevnost.firebaseapp.com",
+    projectId:         "koupelny-navstevnost",
+    storageBucket:     "koupelny-navstevnost.firebasestorage.app",
+    messagingSenderId: "263800017951",
+    appId:             "1:263800017951:web:012c10ee687fcadab9f12a",
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+// ── Helpers ──────────────────────────────────
+
+function scoreClass(v) {
+    if (v === null || v === undefined) return 'none';
+    if (v >= 8) return 'high';
+    if (v >= 5) return 'mid';
+    return 'low';
+}
+
+function stavBadge(stav) {
+    const map = {
+        'Dokončeno':          'badge-green',
+        'Nezvednutý hovor':   'badge-red',
+        'Zavolat jindy':      'badge-gold',
+        'Již kontaktováno':   'badge-blue',
+        'Až bude hotové':     'badge-gold',
+        'Nemá zájem':         'badge-gray',
+        'Domluven termín':    'badge-blue',
+    };
+    return `<span class="badge ${map[stav] || 'badge-gray'}">${stav || '—'}</span>`;
+}
+
+function fmtDate(s) {
+    if (!s) return '—';
+    // ISO nebo DD.MM.YYYY
+    if (s.includes('-') && s.length >= 10) {
+        const d = new Date(s);
+        if (!isNaN(d)) return d.toLocaleDateString('cs-CZ', { day:'numeric', month:'numeric', year:'2-digit' });
+    }
+    return s.slice(0, 10);
+}
+
+// ── Načtení dat ──────────────────────────────
+
+async function loadAll() {
+    const snap = await getDocs(collection(db, 'cx_feedback'));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+// ── Filtry ───────────────────────────────────
+
+function applyFilters(data) {
+    const stredisko = document.getElementById('filterStredisko').value;
+    const sluzba    = document.getElementById('filterSluzba').value;
+    const obdobi    = parseInt(document.getElementById('filterObdobi').value);
+    const stavHov   = document.getElementById('filterStavHovoru').value;
+
+    return data.filter(r => {
+        if (stredisko && r.stredisko !== stredisko) return false;
+        if (sluzba    && r.sluzba    !== sluzba)    return false;
+        if (stavHov   && r.stavHovoru !== stavHov)  return false;
+        if (obdobi > 0) {
+            const d = r.datumKontaktu || r.createdAt || '';
+            if (!d) return false;
+            const date = new Date(d.includes('.') ? d.split('.').reverse().join('-') : d);
+            if (isNaN(date)) return false;
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - obdobi);
+            if (date < cutoff) return false;
+        }
+        return true;
+    });
+}
+
+// ── Render KPI ───────────────────────────────
+
+function renderKPI(data) {
+    const dokonceno = data.filter(r => r.stavHovoru === 'Dokončeno');
+    const scores    = dokonceno.map(r => r.celkoveHodnoceni).filter(v => v !== null && v !== undefined);
+    const avg       = scores.length ? (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1) : '—';
+    const answered   = dokonceno.filter(r => r.doporuceni !== null && r.doporuceni !== undefined && r.doporuceni !== '' && r.doporuceni !== '—' && !isNaN(Number(r.doporuceni)));
+    const promoters  = answered.filter(r => Number(r.doporuceni) >= 9).length;
+    const detractors = answered.filter(r => Number(r.doporuceni) <= 6).length;
+    const nps        = answered.length ? Math.round(((promoters - detractors) / answered.length) * 100) : '—';
+
+    const znovuBase  = dokonceno.filter(r => r.selByZnovu && r.selByZnovu !== '' && r.selByZnovu !== '—').length;
+    const znovu      = dokonceno.filter(r => r.selByZnovu === 'Ano' || r.selByZnovu === 'Spíše ano').length;
+    const znouPct    = znovuBase ? Math.round((znovu / znovuBase) * 100) : '—';
+    document.getElementById('kpiGrid').innerHTML = `
+        <div class="kpi-card">
+            <div class="kpi-label">Celkem záznamů</div>
+            <div class="kpi-value">${data.length}</div>
+            <div class="kpi-sub">${dokonceno.length} dokončených hovorů</div>
+        </div>
+        <div class="kpi-card ${parseFloat(avg) >= 8 ? 'green' : parseFloat(avg) >= 5 ? 'gold' : 'red'}">
+            <div class="kpi-label">Průměrné skóre</div>
+            <div class="kpi-value">${avg}</div>
+            <div class="kpi-sub">z 10 (spok. + doporučení)</div>
+        </div>
+        <div class="kpi-card ${nps >= 50 ? 'green' : nps >= 0 ? 'gold' : 'red'}">
+            <div class="kpi-label">NPS skóre</div>
+            <div class="kpi-value">${nps}</div>
+            <div class="kpi-sub">${promoters} promotérů / ${detractors} kritiků</div>
+        </div>
+        <div class="kpi-card ${znouPct >= 80 ? 'green' : znouPct >= 60 ? 'gold' : 'red'}">
+            <div class="kpi-label">Šel by znovu</div>
+            <div class="kpi-value">${znouPct}%</div>
+<div class="kpi-sub">${znovu} z ${znovuBase} dotázaných</div>        </div>
+    `;
+}
+
+// ── Render bar chart ─────────────────────────
+
+function renderBarChart(containerId, items, maxVal) {
+    const el = document.getElementById(containerId);
+    if (!items.length) { el.innerHTML = '<div style="color:var(--gray-mid);font-size:12px">Žádná data</div>'; return; }
+    el.innerHTML = items.map(({ label, value, count, colorClass }) => `
+        <div class="bar-row">
+            <div class="bar-label" title="${label}">${label}</div>
+            <div class="bar-track">
+                <div class="bar-fill ${colorClass || ''}" style="width:${maxVal ? (value/maxVal*100) : 0}%"></div>
+            </div>
+            <div class="bar-val">${value}${count !== undefined ? `<br><span style="font-size:9px;opacity:.6">${count}×</span>` : ''}</div>
+        </div>
+    `).join('');
+}
+
+// ── Render donut (canvas) ────────────────────
+
+function renderDonut(data) {
+    const counts = {};
+    data.forEach(r => {
+        const s = r.stavHovoru || 'Neznámý';
+        counts[s] = (counts[s] || 0) + 1;
+    });
+    const colors = {
+        'Dokončeno':         '#3fb950',
+        'Nezvednutý hovor':  '#f85149',
+        'Zavolat jindy':     '#d29922',
+        'Již kontaktováno':  '#179ed9',
+        'Až bude hotové':    '#8957e5',
+        'Nemá zájem':        '#6e7681',
+        'Domluven termín':   '#58a6ff',
+    };
+    const total  = data.length;
+    const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+
+    const canvas = document.getElementById('donutCanvas');
+    const ctx    = canvas.getContext('2d');
+    const W = canvas.width  = 120;
+    const H = canvas.height = 120;
+    const cx = W/2, cy = H/2, R = 50, r = 28;
+
+    ctx.clearRect(0,0,W,H);
+    let angle = -Math.PI/2;
+    sorted.forEach(([stav, cnt]) => {
+        const slice = (cnt/total) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx,cy);
+        ctx.arc(cx,cy,R,angle,angle+slice);
+        ctx.closePath();
+        ctx.fillStyle = colors[stav] || '#6e7681';
+        ctx.fill();
+        angle += slice;
+    });
+    // Díra
+    ctx.beginPath();
+    ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--white') || '#fff';
+    ctx.fill();
+    // Střed – celkem
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--blue') || '#179ed9';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(total, cx, cy);
+
+    // Legenda
+    document.getElementById('donutLegend').innerHTML = sorted.slice(0,6).map(([stav, cnt]) => `
+        <div class="legend-row">
+            <div class="legend-dot" style="background:${colors[stav]||'#6e7681'}"></div>
+            <span style="font-size:11px;font-weight:600">${stav}</span>
+            <span class="legend-pct">${Math.round(cnt/total*100)}%</span>
+        </div>
+    `).join('');
+}
+
+// ── Render tabulka ───────────────────────────
+
+function renderTable(data) {
+    const sorted = [...data].sort((a,b) => {
+        const da = a.datumKontaktu || a.createdAt || '';
+        const db2 = b.datumKontaktu || b.createdAt || '';
+        return db2.localeCompare(da);
+    }).slice(0, 50);
+
+    document.getElementById('tableCount').textContent = `(zobrazeno ${sorted.length} z ${data.length})`;
+
+    document.getElementById('cxTableBody').innerHTML = sorted.map(r => `
+        <tr>
+            <td>${fmtDate(r.datumKontaktu || r.createdAt)}</td>
+            <td title="${r.jmeno||''}">${r.jmeno || '—'}</td>
+            <td>${r.stredisko || '—'}</td>
+            <td title="${r.obchodnik||''}">${r.obchodnik || '—'}</td>
+            <td>${r.sluzba || '—'}</td>
+            <td>${stavBadge(r.stavHovoru)}</td>
+            <td><span class="score-chip ${scoreClass(r.spokojenost)}">${r.spokojenost ?? '—'}</span></td>
+            <td><span class="score-chip ${scoreClass(r.doporuceni)}">${r.doporuceni ?? '—'}</span></td>
+            <td>${r.selByZnovu || '—'}</td>
+            <td title="${r.poznamkyHovoru||''}" style="max-width:160px">${(r.poznamkyHovoru||'').slice(0,40)}${(r.poznamkyHovoru||'').length>40?'…':''}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--gray-mid);padding:24px">Žádné záznamy</td></tr>';
+}
+
+// ── Hlavní render ────────────────────────────
+
+let allData = [];
+
+function render() {
+    const data = applyFilters(allData);
+    const dokonceno = data.filter(r => r.stavHovoru === 'Dokončeno');
+
+    renderKPI(data);
+    renderDonut(data);
+    renderTable(data);
+
+    // Skóre dle střediska
+    const strediska = ['Praha','Pardubice','Hradec','Brno','Eshop'];
+    const stredItems = strediska.map(s => {
+        const rows = dokonceno.filter(r => r.stredisko === s && r.celkoveHodnoceni !== null && r.celkoveHodnoceni !== undefined);
+        const avg  = rows.length ? (rows.reduce((a,b) => a + b.celkoveHodnoceni, 0) / rows.length).toFixed(1) : null;
+        return { label: s, value: avg ?? '—', count: rows.length, colorClass: avg >= 8 ? 'green' : avg >= 5 ? 'gold' : '' };
+    }).filter(x => x.count > 0);
+    renderBarChart('chartStredisko', stredItems, 10);
+
+    // Šel by znovu
+    const znovuOrder = ['Ano','Spíše ano','Nevím','Spíše ne','Ne'];
+    const znovuItems = znovuOrder.map(v => {
+        const cnt = dokonceno.filter(r => r.selByZnovu === v).length;
+        return { label: v, value: cnt, colorClass: v==='Ano'?'green': v==='Ne'?'':'' };
+    }).filter(x => x.value > 0);
+    const znMax = Math.max(...znovuItems.map(x => x.value));
+    renderBarChart('chartZnovu', znovuItems, znMax);
+
+    // Obchodníci – top 8
+    const obchMap = {};
+    dokonceno.forEach(r => {
+        if (!r.obchodnik) return;
+        if (!obchMap[r.obchodnik]) obchMap[r.obchodnik] = { sum:0, cnt:0 };
+        if (r.celkoveHodnoceni !== null && r.celkoveHodnoceni !== undefined) {
+            obchMap[r.obchodnik].sum += r.celkoveHodnoceni;
+            obchMap[r.obchodnik].cnt++;
+        }
+    });
+    const obchItems = Object.entries(obchMap)
+        .filter(([,v]) => v.cnt >= 2)
+        .map(([name,v]) => ({ label: name, value: (v.sum/v.cnt).toFixed(1), count: v.cnt, colorClass: v.sum/v.cnt >= 8 ? 'green' : v.sum/v.cnt >= 5 ? 'gold' : '' }))
+        .sort((a,b) => parseFloat(b.value) - parseFloat(a.value))
+        .slice(0,8);
+    renderBarChart('chartObchodnik', obchItems, 10);
+
+    // Služba
+    const sluzbyItems = ['zboží','realizace'].map(s => {
+        const rows = dokonceno.filter(r => r.sluzba === s && r.celkoveHodnoceni !== null && r.celkoveHodnoceni !== undefined);
+        const avg  = rows.length ? (rows.reduce((a,b) => a+b.celkoveHodnoceni,0)/rows.length).toFixed(1) : null;
+        return { label: s.charAt(0).toUpperCase()+s.slice(1), value: avg ?? '—', count: rows.length, colorClass: avg >= 8 ? 'green' : 'gold' };
+    }).filter(x => x.count > 0);
+    renderBarChart('chartSluzba', sluzbyItems, 10);
+}
+
+// ── Init ─────────────────────────────────────
+
+async function init() {
+    allData = await loadAll();
+    render();
+    ['filterStredisko','filterSluzba','filterObdobi','filterStavHovoru'].forEach(id => {
+        document.getElementById(id).addEventListener('change', render);
+    });
+}
+
+init().catch(console.error);
+</script>
+
+<script>
+    // Header date
+    const d = new Date();
+    document.getElementById('headerDate').textContent =
+        d.toLocaleDateString('cs-CZ', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+</script>
+
+</body>
+</html>

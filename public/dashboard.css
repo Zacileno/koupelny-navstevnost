@@ -1,0 +1,773 @@
+/* ===========================
+   KOUPELNY SYROVÝ — CEO DASHBOARD
+   Brandové barvy dle grafického manuálu:
+   Modrá:  #179ED9
+   Zlatá:  #C5A66B  (doplňková)
+   Černá:  #000000
+   =========================== */
+
+/* === RESET === */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* === DESIGN TOKENY === */
+:root {
+    --brand-blue:   #179ED9;
+    --brand-blue2:  #0FBCBD;
+    --brand-gold:   #C5A66B;
+    --brand-gold2:  #B1B15D;
+
+    --bg:           #111318;
+    --surface:      #1a1e27;
+    --surface2:     #20253100;
+    --surface3:     #252a38;
+    --border:       rgba(255,255,255,0.07);
+    --border2:      rgba(23,158,217,0.2);
+
+    --text:         #e8eaf0;
+    --text-dim:     #9aa0b0;
+    --muted:        #5a6070;
+
+    --success:      #34d399;
+    --danger:       #f87171;
+    --warning:      #f59e0b;
+
+    --radius:       14px;
+    --radius-sm:    9px;
+    --shadow:       0 4px 24px rgba(0,0,0,0.4);
+}
+
+/* === BASE === */
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    min-height: 100vh;
+    /* Subtle texture */
+    background-image: radial-gradient(ellipse at 20% 0%, rgba(23,158,217,0.04) 0%, transparent 60%),
+                      radial-gradient(ellipse at 80% 100%, rgba(197,166,107,0.03) 0%, transparent 60%);
+}
+
+/* === LOADING === */
+.loading-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(17,19,24,0.85);
+    z-index: 999;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.loading-overlay.active { display: flex; }
+.spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--brand-blue);
+    border-radius: 50%;
+    animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* === HEADER === */
+.header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 62px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 0 var(--border), 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+/* Logo: na tmavém pozadí používáme bílou variantu */
+.header-logo img {
+    height: 34px;
+    width: auto;
+    filter: brightness(0) invert(1);
+    opacity: 0.92;
+}
+
+.header-divider {
+    width: 1px;
+    height: 26px;
+    background: var(--border);
+}
+
+.header-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--brand-gold);
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.live-dot {
+    width: 7px; height: 7px;
+    background: var(--success);
+    border-radius: 50%;
+    animation: pulse 2.5s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+/* === PAGE === */
+.page {
+    max-width: 1300px;
+    margin: 0 auto;
+    padding: 28px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* === MONTH BAR === */
+.month-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 22px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.month-bar-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.month-nav {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.month-nav-btn {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    width: 30px; height: 30px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    line-height: 1;
+}
+.month-nav-btn:hover {
+    background: var(--brand-blue);
+    color: #fff;
+    border-color: var(--brand-blue);
+}
+
+.month-current {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    min-width: 160px;
+    text-align: center;
+    letter-spacing: 0.01em;
+}
+
+.yoy-badge {
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(23,158,217,0.08);
+    border: 1px solid rgba(23,158,217,0.2);
+    color: var(--brand-blue);
+    padding: 5px 12px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.month-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+}
+
+.filter-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-inline label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+/* === SELECTS === */
+select {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%235a6070' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+}
+select:hover, select:focus { border-color: var(--brand-blue); }
+select option { background: #1a1e27; }
+
+/* === BTN === */
+.btn-refresh {
+    background: var(--brand-blue);
+    border: none;
+    color: #fff;
+    padding: 8px 18px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.btn-refresh:hover { background: #1ab0f0; }
+.btn-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* === KPI GRID === */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+}
+
+.kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 22px 18px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.2s;
+}
+.kpi-card:hover {
+    border-color: var(--border2);
+    transform: translateY(-2px);
+}
+/* Modrá linka nahoře — firemní prvek */
+.kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--brand-blue), transparent);
+}
+
+.kpi-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+}
+
+.kpi-value {
+    font-size: 38px;
+    font-weight: 300;
+    color: var(--text);
+    line-height: 1;
+    margin-bottom: 10px;
+}
+
+.kpi-compare {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.kpi-compare.up   { color: var(--success); }
+.kpi-compare.down { color: var(--danger); }
+
+/* === GRID LAYOUTS === */
+.grid-3 {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 18px;
+}
+
+.grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+}
+
+/* === PANELS === */
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+.panel-title em {
+    font-style: normal;
+    color: var(--brand-blue);
+}
+
+.panel-badge {
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 3px 10px;
+    border-radius: 20px;
+}
+
+.panel-header-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* === CHART WRAP === */
+.chart-wrap {
+    position: relative;
+}
+
+/* === YOY DELTA === */
+.yoy-delta {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: center;
+    line-height: 1.6;
+}
+
+/* === FUNNEL BARS === */
+.funnel-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.funnel-label {
+    width: 160px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    flex-shrink: 0;
+}
+.funnel-bar-wrap {
+    flex: 1;
+    height: 26px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 5px;
+    overflow: hidden;
+}
+.funnel-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--brand-blue), var(--brand-blue2));
+    border-radius: 5px;
+    transition: width 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.funnel-count {
+    width: 42px;
+    text-align: right;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+.funnel-pct {
+    width: 42px;
+    text-align: right;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+}
+
+/* === TABS === */
+.tabs {
+    display: flex;
+    gap: 4px;
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    width: fit-content;
+    margin-bottom: 18px;
+}
+.tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 7px 16px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.15s;
+}
+.tab-btn:hover:not(.active) { color: var(--text); }
+.tab-btn.active {
+    background: var(--surface3);
+    color: var(--text);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* === TABLE === */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.data-table th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+}
+.data-table td {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* === RESPONSIVE === */
+@media (max-width: 1024px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .grid-3, .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+    .page { padding: 16px 12px 48px; gap: 14px; }
+    .header { padding: 0 16px; }
+    .kpi-grid { grid-template-columns: 1fr 1fr; }
+    .month-bar-right { margin-left: 0; width: 100%; }
+    .header-title { display: none; }
+}
+
+/* === TLAČÍTKO DETAIL V TABULCE === */
+.btn-row-detail {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.btn-row-detail:hover {
+    border-color: var(--brand-blue);
+    color: var(--brand-blue);
+}
+
+/* === MODAL === */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10,12,18,0.8);
+    z-index: 500;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+}
+.modal-overlay.active { display: flex; }
+
+.modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 100%;
+    max-width: 680px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.modal-header h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+}
+.modal-close {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s;
+}
+.modal-close:hover { color: var(--text); background: var(--surface3); }
+
+.modal-body {
+    padding: 20px 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* === DETAIL ŘÁDKY === */
+.detail-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.detail-row:last-of-type { border-bottom: none; }
+
+.detail-row-info {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+.detail-time {
+    font-size: 12px;
+    color: var(--muted);
+    min-width: 40px;
+}
+.detail-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+.detail-type {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+.detail-source {
+    font-size: 11px;
+    background: rgba(23,158,217,0.1);
+    border: 1px solid rgba(23,158,217,0.2);
+    color: var(--brand-blue);
+    padding: 2px 8px;
+    border-radius: 20px;
+}
+
+.detail-row-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.btn-edit {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.15s;
+}
+.btn-edit:hover { border-color: var(--brand-gold); color: var(--brand-gold); }
+
+.btn-delete {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.15s;
+}
+.btn-delete:hover { border-color: var(--danger); color: var(--danger); background: rgba(248,113,113,0.05); }
+
+/* === EDIT FORM === */
+.edit-form {
+    margin-top: 20px;
+    padding: 18px;
+    background: var(--surface3);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+}
+.edit-form h4 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--brand-gold);
+    margin-bottom: 14px;
+}
+.edit-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.edit-form-actions {
+    display: flex;
+    gap: 10px;
+}
+.btn-save {
+    background: var(--brand-blue);
+    border: none;
+    color: #fff;
+    padding: 8px 18px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    transition: all 0.15s;
+}
+.btn-save:hover { background: #1ab0f0; }
+.btn-cancel {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.15s;
+}
+.btn-cancel:hover { color: var(--text); border-color: var(--text-dim); }
+
+.hidden { display: none !important; }
+
+/* === PŘEPÍNAČ MĚSÍC / VLASTNÍ === */
+.view-mode-tabs {
+    display: flex;
+    gap: 3px;
+    background: var(--surface3);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+    flex-shrink: 0;
+}
+.view-mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 5px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    transition: all 0.15s;
+}
+.view-mode-btn:hover { color: var(--text); }
+.view-mode-btn.active {
+    background: var(--brand-blue);
+    color: #fff;
+}
+
+/* === CUSTOM DATE RANGE === */
+.custom-range {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+input[type="date"] {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
+    color-scheme: dark;
+}
+input[type="date"]:hover,
+input[type="date"]:focus { border-color: var(--brand-blue); }

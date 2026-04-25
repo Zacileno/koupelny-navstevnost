@@ -15,6 +15,7 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 - **Storage:** Firebase Storage (fotodokumentace realizací)
 - **Frontend:** Vanilla JS + CSS, Chart.js 4.4.0, Montserrat font
 - **Lokální cesta:** `/Users/martinpaclik/Desktop/koupelny-navstevnost`
+- **GitHub:** repozitář `koupelny-syrovy-platform` (private)
 - **Struktura:** `public/` = frontend, `functions/` = Cloud Functions
 
 ### Studia a klíče
@@ -58,7 +59,7 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 - **Dashboard:** `public/realizace/realizace-dashboard.html`
 - **Firestore kolekce:** `realizace`
 - **Klíčová data:** klient, místo, datum/čas, typ, parta, fáze stavby, výsledek kontroly, spokojenost, kvalita, riziko, fotky
-- **Storage:** fotodokumentace v Firebase Storage
+- **Storage:** fotodokumentace v Firebase Storage, HEIC konverze ✅
 
 ---
 
@@ -67,7 +68,6 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 | Priorita | Úkol | Modul |
 |----------|------|-------|
 | 🔴 Vysoká | Firebase Authentication (e-mail + heslo) | Všechny moduly |
-| 🟡 Střední | HEIC → JPEG konverze fotek (iPhony) | Realizace |
 | 🟡 Střední | Admin správa obchodníků (přidat, deaktivovat) | Návštěvnost |
 | 🟢 Nízká | Notifikační systém (připomínky vyplňování) | Všechny moduly |
 
@@ -91,6 +91,7 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 3. **Žádné vendor-specific featury hluboko v logice** — Firebase Auth OK, Firestore dotazy obalit do service vrstvy
 4. **Firebase je správná volba pro tuto fázi** — nemigrovat předčasně
 5. **Každé větší rozhodnutí zapsat do `docs/architektura.md`**
+6. **CLAUDE.md je source of truth** — aktualizovat při každém dokončeném úkolu
 
 ---
 
@@ -129,6 +130,9 @@ firebase emulators:start
 
 # Reauth pokud vyprší token
 firebase login --reauth
+
+# Spustit Claude Code v projektu
+claude
 ```
 
 ---
@@ -137,8 +141,8 @@ firebase login --reauth
 
 ### Fáze 1 — Stabilizace (2026)
 - [ ] Firebase Authentication na všech modulech
-- [ ] GitHub repozitář (z lokálního Desktopu)
-- [ ] HEIC konverze fotek
+- [x] GitHub repozitář
+- [x] HEIC konverze fotek
 - [ ] Administrace obchodníků
 
 ### Fáze 2 — Rozšíření (2026–2027)

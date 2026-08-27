@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Fotodokumentace realizací (a cokoliv dalšího v bucketu) — dřív nastaveno
+    // přímo v konzoli mimo git, nikdy v repu neverzované. Čtení bylo veřejné
+    // i bez download tokenu (ověřeno 2026-08-27), zápis naštěstí už vyžadoval
+    // přihlášení. Teď oboje vyžaduje přihlášení, stejně jako Firestore rules
+    // pro entries/cx_feedback/realizace/users.
+    match /{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+}

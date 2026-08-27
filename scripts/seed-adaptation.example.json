@@ -1,0 +1,14 @@
+{
+  "employee": {
+    "name": "Petra",
+    "email": "petra@priklad.cz",
+    "studioKey": "praha",
+    "startDate": "2026-05-04"
+  },
+  "roles": {
+    "manager":          { "name": "Barča S", "email": "barca@priklad.cz" },
+    "managerDeputy":    { "name": "Matouš" },
+    "seniorSpecialist": { "name": "Barča S" },
+    "buddy":            { "name": "Naty" }
+  }
+}

@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tým — Adaptace · Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+    <link rel="stylesheet" href="adaptace.css">
+</head>
+<body>
+
+<nav class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Adaptace — Tým</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="topbarName"></span>
+        <button class="btn-logout" id="btnLogout">Odhlásit</button>
+    </div>
+</nav>
+
+<div class="page-wrap" id="pageWrap">
+    <div class="loader" id="loader">
+        <div class="spinner"></div>
+        Načítám…
+    </div>
+</div>
+
+<!-- Modal: detail nováčka -->
+<div class="modal-overlay" id="detailModal">
+    <div class="modal" id="detailContent">
+        <div class="modal__handle"></div>
+        <button class="modal__close" id="modalClose">✕</button>
+    </div>
+</div>
+
+<!-- Modal: kontrola cíle -->
+<div class="modal-overlay" id="goalModal">
+    <div class="modal" id="goalModalContent">
+        <div class="modal__handle"></div>
+        <button class="modal__close" id="goalModalClose">✕</button>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import {
+    initFirebase, requireAuth, signOutUser,
+    formatDate, formatDateShort, formatStudios, showToast,
+    calcProgress, countPendingConfirmations,
+    calcWeeklyProgress, countPendingWeeklyConfirmations,
+    ensureDefaultTemplate, ensureProjectSpecialistTemplate,
+    isDemoMode, demoSession, buildDemoAdaptations,
+} from './adaptace-common.js';
+
+const CDN = 'https://www.gstatic.com/firebasejs/12.9.0';
+
+const pageWrap     = document.getElementById('pageWrap');
+const loader       = document.getElementById('loader');
+const modal        = document.getElementById('detailModal');
+const modalContent = document.getElementById('detailContent');
+const goalModal        = document.getElementById('goalModal');
+const goalModalContent = document.getElementById('goalModalContent');
+
+// ── AUTH / DEMO ───────────────────────────────────────────────────────────────
+let session, db;
+
+if (isDemoMode()) {
+    session = demoSession('supervisor');
+} else {
+    session = await requireAuth(['supervisor', 'hr', 'admin']);
+    if (!session) throw new Error('not authorized');
+    ({ db } = await initFirebase());
+}
+
+const { user, profile } = session;
+// profile.role (starší Adaptace, users/{uid}) nebo profile.platformRole (nová
+// cesta přes admin konzoli, users/{slug}) — viz requireAuth v adaptace-common.js.
+const effectiveRole = profile?.role ?? profile?.platformRole;
+// "Moje identita" pro Firestore dotazy: slug u nových lidí, uid u starých.
+const myIds = [user.uid, profile?.id].filter(Boolean);
+document.getElementById('topbarName').textContent = profile?.name ?? user.email ?? '';
+document.getElementById('btnLogout').addEventListener('click',
+    isDemoMode() ? () => { window.location.href = 'login.html'; } : signOutUser);
+document.getElementById('modalClose').addEventListener('click', closeModal);
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+document.getElementById('goalModalClose').addEventListener('click', closeGoalModal);
+goalModal.addEventListener('click', e => { if (e.target === goalModal) closeGoalModal(); });
+
+function closeGoalModal() {
+    goalModal.classList.remove('visible');
+    document.body.style.overflow = '';
+}
+
+if (!isDemoMode() && (effectiveRole === 'hr' || effectiveRole === 'admin')) {
+    ensureDefaultTemplate().catch(console.error);
+    ensureProjectSpecialistTemplate().catch(console.error);
+}
+
+function isWeekly(adp) { return adp.templateType === 'weekly'; }
+function countPending(adp) { return isWeekly(adp) ? countPendingWeeklyConfirmations(adp) : countPendingConfirmations(adp); }
+function calcProg(adp) { return isWeekly(adp) ? calcWeeklyProgress(adp) : calcProgress(adp); }
+
+// ── LOAD DATA ──────────────────────────────────────────────────────────────────
+async function loadAdaptations() {
+    if (isDemoMode()) return buildDemoAdaptations();
+
+    const { collection, query, where, getDocs } =
+        await import(`${CDN}/firebase-firestore.js`);
+    const constraints = [where('status', 'in', ['active', 'paused'])];
+    if (effectiveRole === 'supervisor') {
+        constraints.push(where('supervisorId', 'in', myIds));
+    } else if (effectiveRole !== 'hr' && effectiveRole !== 'admin') {
+        const studioKey = profile?.studioKey ?? profile?.studios ?? null;
+        if (studioKey) constraints.push(where('studioKey', '==', studioKey));
+    }
+    const q = query(collection(db, 'adaptations'), ...constraints);
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+let adaptations = await loadAdaptations();
+loader.remove();
+renderPage(adaptations);
+
+// ── RENDER PAGE ────────────────────────────────────────────────────────────────
+function renderPage(adps) {
+    const pending = adps.filter(a => countPending(a) > 0);
+    const totalPending = pending.reduce((s, a) => s + countPending(a), 0);
+
+    pageWrap.innerHTML = `
+        <div class="section-header">
+            <h1>Adaptace týmu</h1>
+            ${totalPending > 0
+                ? `<span class="pending-badge">⏳ ${totalPending} čeká na potvrzení</span>`
+                : ''}
+        </div>
+
+        ${totalPending > 0 ? renderQueue(pending) : ''}
+
+        <div class="section-header" style="padding-top:${totalPending > 0 ? '20px' : '28px'}">
+            <h2>Aktivní nováčci <span class="text-muted" style="font-weight:400;font-size:14px;">(${adps.length})</span></h2>
+        </div>
+
+        ${adps.length === 0
+            ? `<div class="queue-empty">Žádní aktivní nováčci.</div>`
+            : `<div class="employee-grid" id="employeeGrid"></div>`}
+    `;
+
+    if (adps.length > 0) {
+        const grid = document.getElementById('employeeGrid');
+        adps.forEach(adp => grid.appendChild(renderEmployeeCard(adp)));
+    }
+}
+
+function renderQueue(pending) {
+    const dayItems = pending.filter(adp => !isWeekly(adp)).flatMap(adp =>
+        adp.days
+            .map((day, i) => ({ day, i, adp }))
+            .filter(({ day }) => day.status === 'completed')
+    );
+    const goalItems = pending.filter(isWeekly).flatMap(adp => {
+        const items = [];
+        adp.phases.forEach((phase, pi) => phase.weeks.forEach((week, wi) => week.goals.forEach((goal, gi) => {
+            if (goal.status === 'completed') items.push({ adp, week, goal, pi, wi, gi });
+        })));
+        return items;
+    });
+
+    return `
+        <div style="margin-top:8px;">
+            <div class="section-header" style="padding-top:0;padding-bottom:10px;">
+                <h2>Čeká na potvrzení</h2>
+            </div>
+            ${dayItems.map(({ day, i, adp }) => `
+                <div class="card card--clickable" data-adp="${adp.id}" data-day="${i}" style="display:flex;align-items:center;gap:14px;padding:14px 18px;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;font-size:14px;">${adp.employeeName}</div>
+                        <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">
+                            Den ${day.dayNumber}: ${day.label}
+                            ${day.type === 'milestone' ? '<span class="badge badge--milestone" style="margin-left:6px;">🏆 Milník</span>' : ''}
+                        </div>
+                        ${day.employeeNote ? `<div style="font-size:12px;color:var(--text-dim);margin-top:4px;font-style:italic;">"${day.employeeNote}"</div>` : ''}
+                    </div>
+                    <button class="btn btn--primary btn--sm" data-confirm="${adp.id}" data-day="${i}">
+                        Potvrdit
+                    </button>
+                </div>
+            `).join('')}
+            ${goalItems.map(({ adp, week, goal, pi, wi, gi }) => `
+                <div class="card card--clickable" data-adp="${adp.id}" style="display:flex;align-items:center;gap:14px;padding:14px 18px;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;font-size:14px;">${adp.employeeName}</div>
+                        <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">
+                            Týden ${week.weekNumber}: ${goal.text}
+                        </div>
+                        ${goal.employeeNote ? `<div style="font-size:12px;color:var(--text-dim);margin-top:4px;font-style:italic;">"${goal.employeeNote}"</div>` : ''}
+                    </div>
+                    <button class="btn btn--primary btn--sm" data-review-goal="${adp.id}" data-phase="${pi}" data-week="${wi}" data-goal="${gi}">
+                        Zkontrolovat
+                    </button>
+                </div>
+            `).join('')}
+        </div>`;
+}
+
+function renderEmployeeCard(adp) {
+    const { done, total, pct } = calcProg(adp);
+    const pending = countPending(adp);
+    const startDate = adp.startDate?.toDate?.() ?? new Date(adp.startDate);
+    const currentDay = adp.days?.[adp.currentDayIndex];
+    const currentPhase = isWeekly(adp)
+        ? (adp.phases.find(p => p.weeks.some(w => w.goals.some(g => g.status === 'pending'))) ?? adp.phases[adp.phases.length - 1])
+        : null;
+
+    const el = document.createElement('div');
+    el.className = 'employee-card';
+    el.dataset.adpId = adp.id;
+    el.innerHTML = `
+        <div class="employee-card__name">${adp.employeeName}</div>
+        <div class="employee-card__meta">
+            <span>Studio ${formatStudios(adp.studioKey)}</span>
+            <span>Nástup: ${formatDate(startDate)}</span>
+            ${currentDay ? `<span>Aktuálně: Den ${currentDay.dayNumber} — ${currentDay.label}</span>` : ''}
+            ${currentPhase ? `<span>Aktuálně: Fáze ${currentPhase.phaseNumber} — ${currentPhase.name}</span>` : ''}
+        </div>
+        ${pending > 0
+            ? `<div class="pending-badge" style="margin-top:10px;">⏳ ${pending} čeká na potvrzení</div>`
+            : ''}
+        <div class="employee-card__progress">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);">
+                <span>${isWeekly(adp) ? 'Cíl' : 'Den'} ${done} z ${total}</span>
+                <span>${pct}%</span>
+            </div>
+            <div class="employee-card__track">
+                <div class="employee-card__fill" style="width:${pct}%"></div>
+            </div>
+        </div>
+    `;
+    return el;
+}
+
+// ── EVENT DELEGATION ────────────────────────────────────────────────────────────
+pageWrap.addEventListener('click', async e => {
+    // Quick confirm from queue
+    const confirmBtn = e.target.closest('[data-confirm]');
+    if (confirmBtn) {
+        e.stopPropagation();
+        const adpId   = confirmBtn.dataset.confirm;
+        const dayIndex = parseInt(confirmBtn.dataset.day);
+        await confirmDay(adpId, dayIndex, '');
+        return;
+    }
+
+    const reviewGoalBtn = e.target.closest('[data-review-goal]');
+    if (reviewGoalBtn) {
+        e.stopPropagation();
+        const adpId = reviewGoalBtn.dataset.reviewGoal;
+        const pi = parseInt(reviewGoalBtn.dataset.phase);
+        const wi = parseInt(reviewGoalBtn.dataset.week);
+        const gi = parseInt(reviewGoalBtn.dataset.goal);
+        const adp = adaptations.find(a => a.id === adpId);
+        if (adp) openGoalReview(adp, pi, wi, gi);
+        return;
+    }
+
+    // Open detail modal
+    const card = e.target.closest('[data-adp-id], [data-adp]');
+    if (card) {
+        const adpId = card.dataset.adpId ?? card.dataset.adp;
+        const dayHint = card.dataset.day != null ? parseInt(card.dataset.day) : null;
+        const adp = adaptations.find(a => a.id === adpId);
+        if (adp) openDetail(adp, dayHint);
+    }
+});
+
+// ── DETAIL MODAL ───────────────────────────────────────────────────────────────
+function openDetail(adp, highlightDay = null) {
+    if (isWeekly(adp)) return openWeeklyDetail(adp);
+    return openDailyDetail(adp, highlightDay);
+}
+
+function openDailyDetail(adp, highlightDay = null) {
+    const { done, total, pct } = calcProgress(adp);
+    const startDate = adp.startDate?.toDate?.() ?? new Date(adp.startDate);
+
+    modalContent.innerHTML = `
+        <div class="modal__handle"></div>
+        <button class="modal__close" id="modalClose2">✕</button>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;">
+            <div>
+                <div class="modal__title" style="margin-bottom:4px;">${adp.employeeName}</div>
+                <div class="text-dim" style="font-size:13px;">
+                    Studio ${formatStudios(adp.studioKey)} &nbsp;·&nbsp; Nástup: ${formatDate(startDate)}
+                </div>
+            </div>
+            <span class="badge badge--in-progress">Den ${done}/${total}</span>
+        </div>
+
+        <!-- Progress -->
+        <div style="margin-bottom:20px;">
+            <div class="progress-track">
+                <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
+        </div>
+
+        <!-- Days -->
+        <div id="modalDayList"></div>
+    `;
+
+    document.getElementById('modalClose2').addEventListener('click', closeModal);
+
+    const listEl = document.getElementById('modalDayList');
+    adp.days.forEach((day, i) => {
+        listEl.appendChild(renderModalDayCard(day, i, adp, highlightDay === i));
+    });
+
+    modal.classList.add('visible');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+    modal.classList.remove('visible');
+    document.body.style.overflow = '';
+}
+
+// ── WEEKLY DETAIL MODAL (projektový specialista) ────────────────────────────────
+function openWeeklyDetail(adp) {
+    const { done, total, pct } = calcWeeklyProgress(adp);
+    const startDate = adp.startDate?.toDate?.() ?? new Date(adp.startDate);
+
+    modalContent.innerHTML = `
+        <div class="modal__handle"></div>
+        <button class="modal__close" id="modalClose2">✕</button>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;">
+            <div>
+                <div class="modal__title" style="margin-bottom:4px;">${adp.employeeName}</div>
+                <div class="text-dim" style="font-size:13px;">
+                    Studio ${formatStudios(adp.studioKey)} &nbsp;·&nbsp; Nástup: ${formatDate(startDate)}
+                </div>
+                <div class="text-dim" style="font-size:12px;margin-top:4px;">
+                    Buddy: ${adp.roles?.buddy?.name ?? '—'} &nbsp;·&nbsp;
+                    Manažer: ${adp.roles?.manager?.name ?? '—'} &nbsp;·&nbsp;
+                    Senior: ${adp.roles?.seniorSpecialist?.name ?? '—'} &nbsp;·&nbsp;
+                    Zástupce: ${adp.roles?.managerDeputy?.name ?? '—'}
+                </div>
+            </div>
+            <span class="badge badge--in-progress">${done}/${total}</span>
+        </div>
+
+        <div style="margin-bottom:20px;">
+            <div class="progress-track">
+                <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
+        </div>
+
+        <div id="modalPhaseList"></div>
+
+        <div class="section-header" style="padding-top:20px;">
+            <h2 style="font-size:14px;">Průběžné cíle</h2>
+        </div>
+        <div id="modalOngoingList"></div>
+    `;
+
+    document.getElementById('modalClose2').addEventListener('click', closeModal);
+
+    const phaseListEl = document.getElementById('modalPhaseList');
+    adp.phases.forEach((phase, pi) => phaseListEl.appendChild(renderModalPhaseCard(phase, pi, adp)));
+
+    const ongoingListEl = document.getElementById('modalOngoingList');
+    adp.ongoingCategories.forEach((cat, ci) => {
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.style.marginBottom = '10px';
+        el.innerHTML = `
+            <div class="phase-section__title" style="font-size:13px;margin-bottom:8px;">${cat.label}</div>
+            ${cat.goals.map(goal => `
+                <div class="quota-item${goal.status === 'completed' ? ' quota-item--done' : ''}">
+                    <span class="quota-item__text">${goal.text}</span>
+                    <span class="quota-item__count">${goal.targetCount != null ? `${goal.currentCount}/${goal.targetCount}` : (goal.status === 'completed' ? '✓' : '—')}</span>
+                </div>
+            `).join('')}
+        `;
+        ongoingListEl.appendChild(el);
+    });
+
+    modal.classList.add('visible');
+    document.body.style.overflow = 'hidden';
+}
+
+function renderModalPhaseCard(phase, phaseIndex, adp) {
+    const allGoals = phase.weeks.flatMap(w => w.goals);
+    const doneCount = allGoals.filter(g => g.status === 'completed' || g.status === 'confirmed').length;
+    const hasPending = allGoals.some(g => g.status === 'completed');
+
+    const el = document.createElement('div');
+    el.className = 'day-card' + (hasPending ? ' day-card--open' : '');
+    el.innerHTML = `
+        <div class="day-card__header">
+            <div class="day-card__info">
+                <div class="day-card__title">Fáze ${phase.phaseNumber} — ${phase.name}</div>
+                <div class="day-card__meta"><span class="text-muted">${doneCount}/${allGoals.length} cílů</span></div>
+            </div>
+            <span class="day-card__chevron">›</span>
+        </div>
+        <div class="day-card__body">
+            ${phase.weeks.map((week, wi) => `
+                <div class="week-block">
+                    <div class="week-block__label">Týden ${week.weekNumber}</div>
+                    <ul class="task-list">
+                        ${week.goals.map((goal, gi) => renderModalGoalItem(goal, phaseIndex, wi, gi, adp)).join('')}
+                    </ul>
+                </div>
+            `).join('')}
+        </div>
+    `;
+    el.querySelector('.day-card__header').addEventListener('click', () => {
+        el.classList.toggle('day-card--open');
+    });
+    return el;
+}
+
+function renderModalGoalItem(goal, phaseIndex, weekIndex, goalIndex, adp) {
+    const checked = goal.status === 'completed' || goal.status === 'confirmed';
+    const personLabel = goalPersonLabelTym(goal, adp);
+    const statusBadge = goal.status === 'confirmed'
+        ? `<span class="badge badge--confirmed">Potvrzeno</span>`
+        : goal.status === 'completed'
+            ? `<span class="badge badge--completed">Čeká na potvrzení</span>`
+            : '';
+    const noteBadge = goal.employeeNote
+        ? `<span class="badge badge--note">💬 Poznámka od nováčka</span>`
+        : '';
+
+    return `
+        <li class="task-item">
+            <input type="checkbox" class="task-item__checkbox" ${checked ? 'checked' : ''} disabled>
+            <label class="task-item__label" style="flex:1;">
+                ${goal.text}
+                ${personLabel ? `<div class="text-dim" style="font-size:11px;margin-top:2px;">${personLabel}</div>` : ''}
+            </label>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                ${statusBadge}
+                ${noteBadge}
+                <button class="btn btn--ghost btn--sm" data-review-goal="${adp.id}" data-phase="${phaseIndex}" data-week="${weekIndex}" data-goal="${goalIndex}">
+                    Zkontrolovat
+                </button>
+            </div>
+        </li>`;
+}
+
+function goalPersonLabelTym(goal, adp) {
+    if (goal.confirmerRole && adp.roles?.[goal.confirmerRole]) {
+        return `${goal.responsibleLabel} · ${adp.roles[goal.confirmerRole].name}`;
+    }
+    return goal.responsibleLabel || '';
+}
+
+function renderModalDayCard(day, index, adp, autoOpen = false) {
+    const el = document.createElement('div');
+    el.className = `day-card${day.status === 'confirmed' ? ' day-card--confirmed' : ''}`;
+
+    const typeBadge   = dayTypeBadge(day.type);
+    const statusBadge = dayStatusBadge(day.status);
+    const checkedTasks = countCheckedTasks(day);
+    const allTasks     = countAllTasks(day);
+
+    el.innerHTML = `
+        <div class="day-card__header">
+            <div class="day-card__number">${day.dayNumber}</div>
+            <div class="day-card__info">
+                <div class="day-card__title">${day.label}</div>
+                <div class="day-card__meta">
+                    ${typeBadge} ${statusBadge}
+                    <span class="text-muted">${checkedTasks}/${allTasks} úkolů</span>
+                </div>
+            </div>
+            <span class="day-card__chevron">›</span>
+        </div>
+        <div class="day-card__body">
+            ${renderModalBlocks(day)}
+            ${renderConfirmPanel(day, index, adp)}
+        </div>
+    `;
+
+    el.querySelector('.day-card__header').addEventListener('click', () => {
+        el.classList.toggle('day-card--open');
+    });
+
+    if (autoOpen || day.status === 'completed') {
+        el.classList.add('day-card--open');
+    }
+
+    return el;
+}
+
+function renderModalBlocks(day) {
+    const blocks = [...(day.morningBlocks ?? []), ...(day.afternoonBlocks ?? [])];
+    if (!blocks.length) return '';
+
+    return blocks.map(block => {
+        const bp = day.blocks?.find(b => b.blockId === block.id);
+        const tasks = block.tasks.map((task, ti) => {
+            const checked = bp?.tasks?.[ti]?.checkedByEmployee ?? false;
+            return `<li class="task-item${checked ? ' task-item--checked' : ''}">
+                <input type="checkbox" class="task-item__checkbox" ${checked ? 'checked' : ''} disabled>
+                <label class="task-item__label">${task}</label>
+            </li>`;
+        }).join('');
+
+        return `<div class="block-item" style="margin-top:12px;">
+            <div class="block-item__header">
+                <span class="block-item__title">${block.title}</span>
+                <span class="block-item__duration">${block.durationMinutes} min</span>
+            </div>
+            <ul class="task-list">${tasks}</ul>
+        </div>`;
+    }).join('');
+}
+
+function renderConfirmPanel(day, index, adp) {
+    if (day.status === 'confirmed') {
+        const note = day.supervisorNote
+            ? `<div class="text-dim" style="font-size:12px;margin-top:6px;font-style:italic;">Komentář: "${day.supervisorNote}"</div>`
+            : '';
+        return `<div class="day-actions">
+            <span class="badge badge--confirmed">✓ Potvrzeno vedoucím</span>
+            ${note}
+        </div>`;
+    }
+
+    if (day.status !== 'completed') return '';
+
+    if (day.employeeNote) {
+        var empNote = `<div style="background:var(--surface3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;margin-bottom:12px;">
+            <span class="text-dim">Poznámka nováčka:</span><br>
+            <em>${day.employeeNote}</em>
+        </div>`;
+    } else {
+        var empNote = '';
+    }
+
+    return `<div class="confirm-panel">
+        <h4>⏳ Čeká na potvrzení — ${day.type === 'milestone' ? '🏆 Milník' : 'Den ' + day.dayNumber}</h4>
+        ${empNote}
+        <textarea class="confirm-note" id="confirmNote-${index}" placeholder="Komentář k hodnocení (nepovinné)…"></textarea>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn--success" data-confirm-modal="${adp.id}" data-day="${index}">
+                ✓ Potvrdit splnění
+            </button>
+            <button class="btn btn--ghost btn--sm" data-reject="${adp.id}" data-day="${index}">
+                Vrátit k dopracování
+            </button>
+        </div>
+    </div>`;
+}
+
+// ── MODAL EVENT DELEGATION ─────────────────────────────────────────────────────
+modalContent.addEventListener('click', async e => {
+    const confirmBtn = e.target.closest('[data-confirm-modal]');
+    const rejectBtn  = e.target.closest('[data-reject]');
+
+    if (confirmBtn) {
+        const adpId    = confirmBtn.dataset.confirmModal;
+        const dayIndex = parseInt(confirmBtn.dataset.day);
+        const note     = document.getElementById(`confirmNote-${dayIndex}`)?.value ?? '';
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Ukládám…';
+        await confirmDay(adpId, dayIndex, note);
+        return;
+    }
+
+    if (rejectBtn) {
+        const adpId    = rejectBtn.dataset.reject;
+        const dayIndex = parseInt(rejectBtn.dataset.day);
+        rejectBtn.disabled = true;
+        await rejectDay(adpId, dayIndex);
+        return;
+    }
+
+    const reviewGoalBtn = e.target.closest('[data-review-goal]');
+    if (reviewGoalBtn) {
+        const adpId = reviewGoalBtn.dataset.reviewGoal;
+        const pi = parseInt(reviewGoalBtn.dataset.phase);
+        const wi = parseInt(reviewGoalBtn.dataset.week);
+        const gi = parseInt(reviewGoalBtn.dataset.goal);
+        const adp = adaptations.find(a => a.id === adpId);
+        if (adp) openGoalReview(adp, pi, wi, gi);
+    }
+});
+
+// ── GOAL REVIEW MODAL ────────────────────────────────────────────────────────────
+function openGoalReview(adp, phaseIndex, weekIndex, goalIndex) {
+    const goal = adp.phases[phaseIndex].weeks[weekIndex].goals[goalIndex];
+    const personLabel = goalPersonLabelTym(goal, adp);
+    const statusLabel = goal.status === 'confirmed' ? 'Potvrzeno'
+        : goal.status === 'completed' ? 'Čeká na potvrzení' : 'Nesplněno';
+
+    const employeeNoteHtml = goal.employeeNote
+        ? `<div style="background:var(--surface3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;margin-bottom:16px;">
+            <span class="text-dim">💬 Poznámka od nováčka:</span><br>
+            <em>${goal.employeeNote}</em>
+        </div>`
+        : `<div class="text-dim" style="font-size:13px;margin-bottom:16px;">Nováček zatím nenapsal žádnou poznámku.</div>`;
+
+    const actionHtml = goal.status === 'confirmed'
+        ? `<span class="badge badge--confirmed" style="margin-top:12px;">Potvrzeno</span>`
+        : `<div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn btn--success" id="btnGoalConfirm">✓ Potvrdit splnění</button>
+            ${goal.status === 'completed'
+                ? `<button class="btn btn--ghost btn--sm" id="btnGoalReject">Vrátit k dopracování</button>`
+                : ''}
+        </div>`;
+
+    goalModalContent.innerHTML = `
+        <div class="modal__handle"></div>
+        <button class="modal__close" id="goalModalClose2">✕</button>
+        <div class="modal__title" style="margin-bottom:4px;">${goal.text}</div>
+        <div class="text-dim" style="font-size:13px;margin-bottom:16px;">
+            ${adp.employeeName} &nbsp;·&nbsp; ${personLabel ? personLabel + ' &nbsp;·&nbsp; ' : ''}${statusLabel}
+        </div>
+        ${employeeNoteHtml}
+        <div class="day-note">
+            <label>Poznámka pro nováčka</label>
+            <textarea id="goalReviewNote" placeholder="Zpětná vazba, doplňující otázka…">${goal.supervisorNote ?? ''}</textarea>
+        </div>
+        <button class="btn btn--primary btn--sm" id="btnSaveGoalReviewNote" style="margin-top:10px;">Uložit poznámku</button>
+        ${actionHtml}
+    `;
+
+    document.getElementById('goalModalClose2').addEventListener('click', closeGoalModal);
+
+    document.getElementById('btnSaveGoalReviewNote').addEventListener('click', async () => {
+        const btn = document.getElementById('btnSaveGoalReviewNote');
+        const note = document.getElementById('goalReviewNote').value;
+        btn.disabled = true;
+        try {
+            await updateGoalSupervisorNote(adp.id, phaseIndex, weekIndex, goalIndex, note);
+            goal.supervisorNote = note;
+            showToast('Poznámka uložena ✓', 'success');
+        } catch (err) {
+            showToast('Uložení se nezdařilo.', 'danger');
+            console.error(err);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    document.getElementById('btnGoalConfirm')?.addEventListener('click', async () => {
+        await confirmGoal(adp.id, phaseIndex, weekIndex, goalIndex);
+        closeGoalModal();
+    });
+    document.getElementById('btnGoalReject')?.addEventListener('click', async () => {
+        await rejectGoal(adp.id, phaseIndex, weekIndex, goalIndex);
+        closeGoalModal();
+    });
+
+    goalModal.classList.add('visible');
+    document.body.style.overflow = 'hidden';
+}
+
+// ── FIRESTORE WRITES ────────────────────────────────────────────────────────────
+// Firestore neumí adresovat prvek pole podle indexu přes dot-path (`days.0.status`
+// nefunguje spolehlivě — pole nejsou mapy), proto se vždy přepisuje celé pole `days`
+// najednou — stejně jako u `phases` (viz `withGoalUpdate` níže).
+function withDayUpdate(days, dayIndex, patch) {
+    return days.map((day, i) => i !== dayIndex ? day : { ...day, ...patch });
+}
+
+async function confirmDay(adpId, dayIndex, note) {
+    try {
+        const adp = adaptations.find(a => a.id === adpId);
+        if (!adp) return;
+
+        const days = withDayUpdate(adp.days, dayIndex, {
+            status:         'confirmed',
+            confirmedBy:    profile?.id ?? user.uid,
+            confirmedAt:    new Date().toISOString(),
+            supervisorNote: note,
+        });
+
+        if (!isDemoMode()) {
+            const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+            await upd(d(db, 'adaptations', adpId), { days });
+        }
+
+        adp.days = days;
+        closeModal();
+        renderPage(adaptations);
+        showToast('Den potvrzen ✓', 'success');
+    } catch (err) {
+        showToast('Uložení se nezdařilo.', 'danger');
+        console.error(err);
+    }
+}
+
+async function rejectDay(adpId, dayIndex) {
+    try {
+        const adp = adaptations.find(a => a.id === adpId);
+        if (!adp) return;
+
+        const days = withDayUpdate(adp.days, dayIndex, { status: 'in_progress' });
+
+        if (!isDemoMode()) {
+            const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+            await upd(d(db, 'adaptations', adpId), { days });
+        }
+
+        adp.days = days;
+        closeModal();
+        renderPage(adaptations);
+        showToast('Den vrácen k dopracování.');
+    } catch (err) {
+        showToast('Uložení se nezdařilo.', 'danger');
+        console.error(err);
+    }
+}
+
+// Firestore neumí adresovat prvek pole podle indexu přes dot-path, proto se vždy přepisuje
+// celé pole `phases` najednou (stejně jako u ongoingCategories v muj-plan.html).
+function withGoalUpdate(adp, phaseIndex, weekIndex, goalIndex, patch) {
+    return adp.phases.map((phase, pi) => {
+        if (pi !== phaseIndex) return phase;
+        return {
+            ...phase,
+            weeks: phase.weeks.map((week, wi) => {
+                if (wi !== weekIndex) return week;
+                return {
+                    ...week,
+                    goals: week.goals.map((goal, gi) => {
+                        if (gi !== goalIndex) return goal;
+                        return { ...goal, ...patch };
+                    }),
+                };
+            }),
+        };
+    });
+}
+
+async function confirmGoal(adpId, phaseIndex, weekIndex, goalIndex) {
+    try {
+        const adp = adaptations.find(a => a.id === adpId);
+        if (!adp) return;
+
+        const patch = {
+            status: 'confirmed',
+            confirmedBy: profile?.id ?? user.uid,
+            confirmedAt: new Date().toISOString(),
+        };
+        const phases = withGoalUpdate(adp, phaseIndex, weekIndex, goalIndex, patch);
+
+        if (!isDemoMode()) {
+            const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+            await upd(d(db, 'adaptations', adpId), { phases });
+        }
+
+        adp.phases = phases;
+        closeModal();
+        renderPage(adaptations);
+        showToast('Cíl potvrzen ✓', 'success');
+    } catch (err) {
+        showToast('Uložení se nezdařilo.', 'danger');
+        console.error(err);
+    }
+}
+
+async function rejectGoal(adpId, phaseIndex, weekIndex, goalIndex) {
+    try {
+        const adp = adaptations.find(a => a.id === adpId);
+        if (!adp) return;
+
+        const phases = withGoalUpdate(adp, phaseIndex, weekIndex, goalIndex, { status: 'pending', checkedAt: null });
+
+        if (!isDemoMode()) {
+            const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+            await upd(d(db, 'adaptations', adpId), { phases });
+        }
+
+        adp.phases = phases;
+        closeModal();
+        renderPage(adaptations);
+        showToast('Cíl vrácen k dopracování.');
+    } catch (err) {
+        showToast('Uložení se nezdařilo.', 'danger');
+        console.error(err);
+    }
+}
+
+async function updateGoalSupervisorNote(adpId, phaseIndex, weekIndex, goalIndex, note) {
+    const adp = adaptations.find(a => a.id === adpId);
+    if (!adp) return;
+
+    const phases = withGoalUpdate(adp, phaseIndex, weekIndex, goalIndex, { supervisorNote: note });
+
+    if (!isDemoMode()) {
+        const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+        await upd(d(db, 'adaptations', adpId), { phases });
+    }
+
+    adp.phases = phases;
+}
+
+// ── HELPERS ────────────────────────────────────────────────────────────────────
+function countAllTasks(day) {
+    return [...(day.morningBlocks ?? []), ...(day.afternoonBlocks ?? [])]
+        .reduce((s, b) => s + (b.tasks?.length ?? 0), 0);
+}
+
+function countCheckedTasks(day) {
+    return (day.blocks ?? [])
+        .reduce((s, b) => s + b.tasks.filter(t => t.checkedByEmployee).length, 0);
+}
+
+function dayTypeBadge(type) {
+    return type === 'milestone' ? `<span class="badge badge--milestone">🏆 Milník</span>`
+         : type === 'wow'       ? `<span class="badge badge--wow">⭐ WOW</span>`
+         : type === 'onsite'    ? `<span class="badge badge--onsite">📍 Výjezd</span>`
+         : '';
+}
+
+function dayStatusBadge(status) {
+    return status === 'completed'  ? `<span class="badge badge--completed">Ke schválení</span>`
+         : status === 'confirmed'  ? `<span class="badge badge--confirmed">Potvrzeno</span>`
+         : status === 'in_progress'? `<span class="badge badge--in-progress">Probíhá</span>`
+         : '';
+}
+
+</script>
+</body>
+</html>

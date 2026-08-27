@@ -1,0 +1,14 @@
+{
+  "employee": {
+    "name": "Karolína Šrámková",
+    "email": "karolina.sramkova@koupelny-syrovy.cz",
+    "studioKey": ["brno"],
+    "startDate": "2026-07-13"
+  },
+  "roles": {
+    "manager":          { "name": "Jakub Krčmarik", "email": "jakub.krcmarik@koupelny-syrovy.cz" },
+    "managerDeputy":    { "name": "Matouš Syrový" },
+    "seniorSpecialist": { "name": "Jakub Krčmarik" },
+    "buddy":            { "name": "TBD" }
+  }
+}

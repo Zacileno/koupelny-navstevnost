@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Přihlášení — Koupelny Syrový</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="shared/shared.css">
+</head>
+<body>
+<div class="login-page">
+    <div class="login-card">
+        <img src="logo.png" alt="Koupelny Syrový" class="login-card__logo">
+        <h1 class="login-card__title" id="cardTitle">Přihlášení</h1>
+        <p class="login-card__subtitle" id="cardSubtitle">Interní platforma</p>
+
+        <div class="login-error" id="loginError"></div>
+        <div class="login-info" id="loginInfo"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="email">E-mail</label>
+                <input type="email" id="email" placeholder="vas@email.cz" autocomplete="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Heslo</label>
+                <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn btn--primary btn--login" id="loginBtn">
+                Přihlásit se
+            </button>
+        </form>
+        <div class="login-links">
+            <button type="button" class="login-link" id="forgotLink">Zapomenuté heslo?</button>
+        </div>
+
+        <form id="resetForm" style="display:none;">
+            <div class="form-group">
+                <label for="resetEmail">E-mail</label>
+                <input type="email" id="resetEmail" placeholder="vas@email.cz" autocomplete="email" required>
+            </div>
+            <button type="submit" class="btn btn--primary btn--login" id="resetBtn">
+                Poslat odkaz na nastavení hesla
+            </button>
+        </form>
+        <div class="login-links" id="backLinkWrap" style="display:none;">
+            <button type="button" class="login-link" id="backLink">Zpět na přihlášení</button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+import { initFirebase, requireAuth } from './shared/auth-common.js';
+
+const CDN = 'https://www.gstatic.com/firebasejs/12.9.0';
+
+const cardTitle    = document.getElementById('cardTitle');
+const cardSubtitle = document.getElementById('cardSubtitle');
+const errorEl = document.getElementById('loginError');
+const infoEl  = document.getElementById('loginInfo');
+
+const loginForm = document.getElementById('loginForm');
+const loginBtn  = document.getElementById('loginBtn');
+const forgotLink = document.getElementById('forgotLink');
+
+const resetForm = document.getElementById('resetForm');
+const resetBtn  = document.getElementById('resetBtn');
+const backLinkWrap = document.getElementById('backLinkWrap');
+const backLink  = document.getElementById('backLink');
+
+const params = new URLSearchParams(window.location.search);
+const explicitRedirect = params.get('redirect');
+
+// Kam po přihlášení: pokud nikdo výslovně nežádal konkrétní stránku (?redirect=),
+// pošli zaměstnance s aktivní adaptací rovnou na jeho plán, jinak na Dovolenou
+// (dnešní univerzální výchozí bod).
+async function resolveTarget(uid, slug) {
+    if (explicitRedirect) return explicitRedirect;
+
+    const { db } = await initFirebase();
+    const { collection, query, where, getDocs } = await import(`${CDN}/firebase-firestore.js`);
+    // employeeId je uid u starších Adaptace záznamů, slug u nových (admin konzole).
+    const q = query(
+        collection(db, 'adaptations'),
+        where('employeeId', 'in', [uid, slug].filter(Boolean)),
+        where('status', 'in', ['active', 'paused'])
+    );
+    const snap = await getDocs(q);
+    return snap.empty ? '/dovolena/dovolena.html' : '/adaptace/muj-plan.html';
+}
+
+function showError(msg) {
+    infoEl.classList.remove('visible');
+    errorEl.textContent = msg;
+    errorEl.classList.add('visible');
+}
+
+function showInfo(msg) {
+    errorEl.classList.remove('visible');
+    infoEl.textContent = msg;
+    infoEl.classList.add('visible');
+}
+
+function hideMessages() {
+    errorEl.classList.remove('visible');
+    infoEl.classList.remove('visible');
+}
+
+if (params.get('claimError') === '1') {
+    showError('Účet ještě nemá dokončené nastavení přístupu. Zkuste se odhlásit a přihlásit znovu, případně kontaktujte administrátora.');
+}
+
+// Pokud je uživatel už přihlášený (a má platný slug claim), přesměruj rovnou.
+(async () => {
+    const { auth } = await initFirebase();
+    auth.onAuthStateChanged(async user => {
+        if (!user) return;
+        const session = await requireAuth('/login.html');
+        if (session) window.location.href = await resolveTarget(session.user.uid, session.slug);
+    });
+})();
+
+loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideMessages();
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Přihlašuji…';
+
+    const email    = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    try {
+        const { auth } = await initFirebase();
+        const { signInWithEmailAndPassword } = await import(`${CDN}/firebase-auth.js`);
+        await signInWithEmailAndPassword(auth, email, password);
+        const session = await requireAuth('/login.html');
+        if (session) window.location.href = await resolveTarget(session.user.uid, session.slug);
+    } catch (err) {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Přihlásit se';
+
+        switch (err.code) {
+            case 'auth/user-not-found':
+            case 'auth/wrong-password':
+            case 'auth/invalid-credential':
+                showError('Nesprávný e-mail nebo heslo.');
+                break;
+            case 'auth/too-many-requests':
+                showError('Příliš mnoho pokusů. Zkuste to za chvíli.');
+                break;
+            case 'auth/user-disabled':
+                showError('Účet byl deaktivován. Kontaktujte administrátora.');
+                break;
+            default:
+                showError('Přihlášení se nezdařilo. Zkuste to znovu.');
+                console.error(err);
+        }
+    }
+});
+
+forgotLink.addEventListener('click', () => {
+    hideMessages();
+    cardTitle.textContent = 'Zapomenuté heslo';
+    cardSubtitle.textContent = 'Pošleme vám odkaz na nastavení nového hesla';
+    loginForm.style.display = 'none';
+    forgotLink.parentElement.style.display = 'none';
+    resetForm.style.display = 'block';
+    backLinkWrap.style.display = 'flex';
+    document.getElementById('resetEmail').value = document.getElementById('email').value;
+});
+
+backLink.addEventListener('click', () => {
+    hideMessages();
+    cardTitle.textContent = 'Přihlášení';
+    cardSubtitle.textContent = 'Interní platforma';
+    resetForm.style.display = 'none';
+    backLinkWrap.style.display = 'none';
+    loginForm.style.display = 'block';
+    forgotLink.parentElement.style.display = 'flex';
+});
+
+resetForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideMessages();
+    resetBtn.disabled = true;
+    resetBtn.textContent = 'Odesílám…';
+
+    const email = document.getElementById('resetEmail').value.trim();
+
+    try {
+        const { auth } = await initFirebase();
+        const { sendPasswordResetEmail } = await import(`${CDN}/firebase-auth.js`);
+        await sendPasswordResetEmail(auth, email);
+    } catch (err) {
+        // Necháváme stejnou odpověď i při auth/user-not-found, ať nejde zjistit,
+        // jestli daný e-mail v systému existuje.
+        if (err.code !== 'auth/user-not-found') console.error(err);
+    }
+
+    resetBtn.disabled = false;
+    resetBtn.textContent = 'Poslat odkaz na nastavení hesla';
+    showInfo('Pokud e-mail existuje v systému, přijde na něj odkaz na nastavení hesla.');
+});
+</script>
+</body>
+</html>

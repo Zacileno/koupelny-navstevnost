@@ -26,6 +26,7 @@ let currentYear  = new Date().getFullYear();
 let currentMonth = new Date().getMonth(); // 0-11
 let currentStudio = 'all';
 let viewMode = 'month';        // 'month' | 'custom'
+let compareMode = 'full';      // 'full' | 'todate' — jen pro viewMode 'month'
 let customDateFrom = '';
 let customDateTo = '';
 let allData = {};       // sloučená data aktuálního měsíce
@@ -84,6 +85,17 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('monthNavWrap').style.display = viewMode === 'month' ? 'flex' : 'none';
             document.getElementById('customRangeWrap').style.display = viewMode === 'custom' ? 'flex' : 'none';
             document.getElementById('yoyBadge').style.display = viewMode === 'month' ? 'flex' : 'none';
+            document.getElementById('compareModeWrap').style.display = viewMode === 'month' ? 'flex' : 'none';
+            if (viewMode === 'month') loadData();
+        });
+    });
+
+    // Přepínač celý měsíc / do dnešního dne
+    document.querySelectorAll('.compare-mode-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.compare-mode-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            compareMode = this.dataset.compare;
             if (viewMode === 'month') loadData();
         });
     });
@@ -125,6 +137,15 @@ function formatMonthLabel(year, month) {
     return new Date(year, month, 1).toLocaleDateString('cs-CZ', { month: 'long', year: 'numeric' });
 }
 
+function toDateStr(year, month, day) {
+    // Stavíme string přímo z lokálních y/m/d — na rozdíl od toISOString() (UTC)
+    // se v časových pásmech za UTC (např. US) neposune o den zpět.
+    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+// Poslední použité rozsahy — pro popisky v YoY grafu/badge
+let lastRangeInfo = { currTo: '', prevTo: '', isTodate: false };
+
 
 // ============================================================
 //  NAČTENÍ OBCHODNÍKŮ
@@ -150,7 +171,6 @@ async function loadUsers() {
 // ============================================================
 async function loadData() {
     showLoading(true);
-    updateMonthDisplay();
 
     try {
         let dateFrom, dateTo, prevFrom, prevTo;
@@ -168,7 +188,22 @@ async function loadData() {
             dateTo   = range.to;
             prevFrom = rangePrev.from;
             prevTo   = rangePrev.to;
+
+            // "Do dnešního dne" — ořízne obě období na stejný počet dní od 1. v měsíci,
+            // ať se rozjetý měsíc neporovnává nespravedlivě s celým loňským měsícem.
+            // U měsíce, který už skončil, nemá co ořezávat — chová se jako "Celý měsíc".
+            const today = new Date();
+            const isCurrentMonth = currentYear === today.getFullYear() && currentMonth === today.getMonth();
+            if (compareMode === 'todate' && isCurrentMonth) {
+                const day = today.getDate();
+                dateTo = toDateStr(currentYear, currentMonth, day);
+                const prevDaysInMonth = new Date(currentYear - 1, currentMonth + 1, 0).getDate();
+                prevTo = toDateStr(currentYear - 1, currentMonth, Math.min(day, prevDaysInMonth));
+            }
+            lastRangeInfo = { currTo: dateTo, prevTo, isTodate: compareMode === 'todate' && isCurrentMonth };
         }
+
+        updateMonthDisplay();
 
         const fetchPrev = viewMode === 'month';
         const [curr, prev] = await Promise.all([
@@ -280,6 +315,25 @@ function updateMonthDisplay() {
         formatMonthLabel(currentYear, currentMonth);
     document.getElementById('lineChartBadge').textContent =
         formatMonthLabel(currentYear, currentMonth);
+
+    const badge = document.getElementById('yoyBadge');
+    if (viewMode === 'month' && lastRangeInfo.isTodate) {
+        const day = parseInt(lastRangeInfo.currTo.split('-')[2], 10);
+        badge.textContent = `↕ Poměrové srovnání: 1.–${day}. den vs. loni 1.–${day}.`;
+    } else {
+        badge.textContent = '↕ Porovnání se stejným měsícem loni';
+    }
+
+    // "Do dnešního dne" má smysl jen u aktuálního (rozjetého) měsíce — starší měsíce jsou už kompletní
+    const today = new Date();
+    const isCurrentMonth = currentYear === today.getFullYear() && currentMonth === today.getMonth();
+    const todateBtn = document.querySelector('.compare-mode-btn[data-compare="todate"]');
+    if (todateBtn) {
+        todateBtn.disabled = !isCurrentMonth;
+        todateBtn.title = isCurrentMonth
+            ? 'Porovná jen dny od začátku měsíce do dneška — u rozjetého měsíce spravedlivější než celý měsíc'
+            : 'Dostupné jen pro aktuální rozjetý měsíc — starší měsíce jsou už kompletní';
+    }
 }
 
 
@@ -407,8 +461,14 @@ function updateYoYChart(curr, prev) {
     const currNovi  = Object.values(curr.merged).reduce((s, d) => s + (d.novi  || 0), 0);
     const prevNovi  = Object.values(prev.merged).reduce((s, d) => s + (d.novi  || 0), 0);
 
-    const currLabel = formatMonthLabel(currentYear, currentMonth);
-    const prevLabel = formatMonthLabel(currentYear - 1, currentMonth);
+    let currLabel = formatMonthLabel(currentYear, currentMonth);
+    let prevLabel = formatMonthLabel(currentYear - 1, currentMonth);
+    if (lastRangeInfo.isTodate) {
+        const day = parseInt(lastRangeInfo.currTo.split('-')[2], 10);
+        const prevDay = parseInt(lastRangeInfo.prevTo.split('-')[2], 10);
+        currLabel += ` (1.–${day}.)`;
+        prevLabel += ` (1.–${prevDay}.)`;
+    }
 
     charts.yoy = new Chart(ctx, {
         type: 'bar',

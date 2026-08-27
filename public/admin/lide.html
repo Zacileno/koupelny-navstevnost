@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lidé — Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../shared/shared.css">
+    <style>
+        .studio-checks {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .studio-checks label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: normal;
+        }
+        .section-header label {
+            font-weight: normal;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        input[type="date"] {
+            color-scheme: dark;
+        }
+        .table td.truncate {
+            max-width: 220px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .table td.actions-cell {
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Lidé</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="userName">…</span>
+        <button class="btn-logout" id="logoutBtn">Odhlásit</button>
+    </div>
+</div>
+
+<div class="page-wrap">
+    <div class="section-header">
+        <h1>Přidat člověka</h1>
+    </div>
+
+    <div class="card">
+        <form id="onboardForm">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="fName">Jméno a příjmení</label>
+                    <input type="text" id="fName" required>
+                </div>
+                <div class="form-group">
+                    <label for="fEmail">E-mail</label>
+                    <input type="email" id="fEmail" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="fDepartment">Oddělení</label>
+                    <select id="fDepartment" required>
+                        <option value="" disabled selected>Vyberte…</option>
+                        <option value="sales">Obchod</option>
+                        <option value="accounting">Účetnictví</option>
+                        <option value="operations">Provoz</option>
+                        <option value="realization">Realizace</option>
+                        <option value="marketing">Marketing</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="fPosition">Pozice</label>
+                    <input type="text" id="fPosition" required placeholder="např. Junior projektový specialista Pardubice">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Studia</label>
+                <div class="studio-checks" id="studioChecks">
+                    <label><input type="checkbox" value="praha"> Praha</label>
+                    <label><input type="checkbox" value="brno"> Brno</label>
+                    <label><input type="checkbox" value="hradec"> Hradec Králové</label>
+                    <label><input type="checkbox" value="pardubice"> Pardubice</label>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="fPhone">Telefon</label>
+                    <input type="text" id="fPhone" required>
+                </div>
+                <div class="form-group">
+                    <label for="fPersonalPhone">Osobní telefon (nepovinné)</label>
+                    <input type="text" id="fPersonalPhone">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="fManagerSlug">Manažer (schvaluje dovolenou)</label>
+                    <select id="fManagerSlug" required>
+                        <option value="" disabled selected>Vyberte…</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="fPlatformRole">Role v appce (nepovinné)</label>
+                    <select id="fPlatformRole">
+                        <option value="">— běžný zaměstnanec —</option>
+                        <option value="supervisor">supervisor</option>
+                        <option value="hr">hr</option>
+                        <option value="admin">admin</option>
+                    </select>
+                    <div class="form-hint">Jen pokud má schvalovat cíle v Adaptaci nebo mít přístup sem.</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label><input type="checkbox" id="fStartAdaptation"> Zahájit rovnou Adaptaci (Projektový specialista/designér, 90 dní)</label>
+            </div>
+
+            <div id="adaptationFields" style="display:none;">
+                <div class="form-group">
+                    <label for="fStartDate">Datum nástupu</label>
+                    <input type="date" id="fStartDate">
+                </div>
+                <div class="form-group">
+                    <label for="fRoleManager">Adaptace — manažer (potvrzuje cíle)</label>
+                    <select id="fRoleManager">
+                        <option value="" disabled selected>Vyberte…</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="fRoleManagerDeputy">Zástupce manažera (jen jméno)</label>
+                        <input type="text" id="fRoleManagerDeputy">
+                    </div>
+                    <div class="form-group">
+                        <label for="fRoleSenior">Senior specialista (jen jméno)</label>
+                        <input type="text" id="fRoleSenior">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="fRoleBuddy">Buddy (jen jméno)</label>
+                    <input type="text" id="fRoleBuddy">
+                </div>
+                <div class="form-hint">
+                    Tahle tři jména se jen zobrazí novému člověku u cílů na jeho plánu (kdo ho zastoupí, na koho se obrátit, kdo je buddy) — nemají vlastní přihlášení ani přístup. Nepovinné, klidně nechat prázdné.
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn--primary btn--login" id="submitBtn">
+                Přidat
+            </button>
+        </form>
+    </div>
+
+    <div class="section-header">
+        <h2>Lidé</h2>
+        <label class="text-dim"><input type="checkbox" id="showInactive"> zobrazit i neaktivní</label>
+    </div>
+
+    <div id="peopleList">
+        <div class="loader"><div class="spinner"></div>Načítám…</div>
+    </div>
+</div>
+
+<script type="module">
+import { initFirebase, requireAuth, signOutUser, showToast, CDN } from '../shared/auth-common.js';
+import { PROJECT_SPECIALIST_TEMPLATE, buildWeeklyProgress } from '../adaptace/adaptace-common.js';
+
+const DEPARTMENT_LABELS = {
+    sales: 'Obchod', accounting: 'Účetnictví', operations: 'Provoz',
+    realization: 'Realizace', marketing: 'Marketing',
+};
+const STUDIO_LABELS = { praha: 'Praha', brno: 'Brno', hradec: 'Hradec Králové', pardubice: 'Pardubice' };
+
+let session = null;
+let db = null;
+let onboardEmployee = null;
+let offboardEmployee = null;
+let allUsers = [];
+
+async function init() {
+    session = await requireAuth('/login.html');
+    if (!session) return;
+
+    if (!['hr', 'admin'].includes(session.profile?.platformRole)) {
+        window.location.href = '/login.html';
+        return;
+    }
+
+    document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+    document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+    const fb = await initFirebase();
+    db = fb.db;
+
+    const { getFunctions, httpsCallable } = await import(`${CDN}/firebase-functions.js`);
+    const functions = getFunctions(fb.app, 'europe-central2');
+    onboardEmployee = httpsCallable(functions, 'onboardEmployee');
+    offboardEmployee = httpsCallable(functions, 'offboardEmployee');
+
+    document.getElementById('fStartAdaptation').addEventListener('change', (e) => {
+        document.getElementById('adaptationFields').style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    // Nativní kalendářová ikonka je malá a lidi na ni nekliknou — otevřít picker
+    // na klik kamkoliv do pole (i na text), ne jen na tu ikonku.
+    const startDateInput = document.getElementById('fStartDate');
+    const openDatePicker = () => { try { startDateInput.showPicker(); } catch { /* fallback: normální focus */ } };
+    startDateInput.addEventListener('click', openDatePicker);
+    document.querySelector('label[for="fStartDate"]').addEventListener('click', openDatePicker);
+    document.getElementById('showInactive').addEventListener('change', renderPeopleList);
+    document.getElementById('onboardForm').addEventListener('submit', onSubmit);
+
+    await loadUsers();
+}
+
+async function loadUsers() {
+    const { collection, query, orderBy, getDocs } = await import(`${CDN}/firebase-firestore.js`);
+    const snap = await getDocs(query(collection(db, 'users'), orderBy('name', 'asc')));
+    allUsers = snap.docs
+        .map(d => ({ slug: d.id, ...d.data() }))
+        .filter(u => !u.external);
+
+    fillPersonSelect('fManagerSlug', allUsers.filter(u => u.active));
+    fillPersonSelect('fRoleManager', allUsers.filter(u => u.active));
+    renderPeopleList();
+}
+
+function fillPersonSelect(selectId, people) {
+    const select = document.getElementById(selectId);
+    const placeholder = select.querySelector('option');
+    select.innerHTML = '';
+    select.appendChild(placeholder);
+    for (const p of people) {
+        const opt = document.createElement('option');
+        opt.value = p.slug;
+        opt.textContent = p.name;
+        select.appendChild(opt);
+    }
+}
+
+function renderPeopleList() {
+    const showInactive = document.getElementById('showInactive').checked;
+    const list = document.getElementById('peopleList');
+    const people = allUsers.filter(u => showInactive || u.active);
+
+    if (people.length === 0) {
+        list.innerHTML = '<div class="empty-state">Nikdo tu není.</div>';
+        return;
+    }
+
+    const rows = people.map(u => `
+        <tr>
+            <td>${escapeHtml(u.name ?? '')}</td>
+            <td>${u.active
+                ? '<span class="badge badge--confirmed">aktivní</span>'
+                : '<span class="badge badge--cancelled">neaktivní</span>'}</td>
+            <td class="actions-cell">${u.active
+                ? `<button class="btn btn--danger btn--sm" data-offboard="${u.slug}">Deaktivovat</button>`
+                : ''}</td>
+            <td class="text-dim">${DEPARTMENT_LABELS[u.department] ?? u.department ?? '—'}</td>
+            <td class="text-dim">${(u.studios ?? []).map(s => STUDIO_LABELS[s] ?? s).join(', ') || '—'}</td>
+            <td class="text-dim truncate" title="${escapeHtml(u.position ?? '')}">${escapeHtml(u.position ?? '')}</td>
+        </tr>
+    `).join('');
+
+    list.innerHTML = `
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                    <tr><th>Jméno</th><th>Stav</th><th></th><th>Oddělení</th><th>Studia</th><th>Pozice</th></tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    `;
+
+    list.querySelectorAll('[data-offboard]').forEach(btn => {
+        btn.addEventListener('click', () => onOffboard(btn.dataset.offboard, btn));
+    });
+}
+
+async function onOffboard(slug, btn) {
+    const person = allUsers.find(u => u.slug === slug);
+    if (!confirm(`Deaktivovat ${person?.name ?? slug}? Přihlášení mu přestane fungovat, historie zůstane zachovaná.`)) {
+        return;
+    }
+    btn.disabled = true;
+    try {
+        await offboardEmployee({ slug });
+        showToast(`${person?.name ?? slug} deaktivován(a)`, 'success');
+        await loadUsers();
+    } catch (err) {
+        console.error(err);
+        showToast(err.message || 'Deaktivace se nezdařila');
+        btn.disabled = false;
+    }
+}
+
+async function ensureProjectSpecialistTemplateId() {
+    const { collection, query, where, getDocs, addDoc, serverTimestamp } = await import(`${CDN}/firebase-firestore.js`);
+    const q = query(
+        collection(db, 'adaptation_templates'),
+        where('isDefault', '==', true),
+        where('role', '==', 'projektovy_specialista')
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) return snap.docs[0].id;
+
+    const ref = await addDoc(collection(db, 'adaptation_templates'), {
+        ...PROJECT_SPECIALIST_TEMPLATE,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+    });
+    return ref.id;
+}
+
+async function onSubmit(e) {
+    e.preventDefault();
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Zakládám…';
+
+    try {
+        const studios = Array.from(document.querySelectorAll('#studioChecks input:checked')).map(c => c.value);
+        const startAdaptation = document.getElementById('fStartAdaptation').checked;
+
+        const payload = {
+            name: document.getElementById('fName').value.trim(),
+            email: document.getElementById('fEmail').value.trim(),
+            department: document.getElementById('fDepartment').value,
+            studios,
+            position: document.getElementById('fPosition').value.trim(),
+            phone: document.getElementById('fPhone').value.trim(),
+            personalPhone: document.getElementById('fPersonalPhone').value.trim(),
+            managerSlug: document.getElementById('fManagerSlug').value,
+            platformRole: document.getElementById('fPlatformRole').value || null,
+        };
+
+        if (startAdaptation) {
+            const startDateValue = document.getElementById('fStartDate').value;
+            const roleManagerSlug = document.getElementById('fRoleManager').value;
+            if (!startDateValue || !roleManagerSlug) {
+                showToast('Pro adaptaci vyplňte datum nástupu a manažera');
+                return;
+            }
+            const roleManager = allUsers.find(u => u.slug === roleManagerSlug);
+            const startDate = new Date(startDateValue);
+            const templateId = await ensureProjectSpecialistTemplateId();
+            const { phases, ongoingCategories } = buildWeeklyProgress(PROJECT_SPECIALIST_TEMPLATE, startDate);
+
+            payload.adaptation = {
+                templateType: 'weekly',
+                templateId,
+                startDate: startDate.toISOString(),
+                phases,
+                ongoingCategories,
+                roles: {
+                    manager: { slug: roleManagerSlug, name: roleManager?.name ?? '' },
+                    managerDeputy: { slug: null, name: document.getElementById('fRoleManagerDeputy').value.trim() || null },
+                    seniorSpecialist: { slug: null, name: document.getElementById('fRoleSenior').value.trim() || null },
+                    buddy: { slug: null, name: document.getElementById('fRoleBuddy').value.trim() || null },
+                },
+            };
+        }
+
+        const result = await onboardEmployee(payload);
+        showToast(`${payload.name} přidán(a) (${result.data.slug})`, 'success');
+        e.target.reset();
+        document.getElementById('adaptationFields').style.display = 'none';
+        await loadUsers();
+    } catch (err) {
+        console.error(err);
+        showToast(err.message || 'Založení se nezdařilo');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Přidat';
+    }
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+init();
+</script>
+</body>
+</html>

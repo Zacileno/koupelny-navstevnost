@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Můj plán — Adaptace · Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+    <link rel="stylesheet" href="adaptace.css">
+</head>
+<body>
+
+<nav class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Adaptace</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="topbarName"></span>
+        <button class="btn-logout" id="btnLogout">Odhlásit</button>
+    </div>
+</nav>
+
+<div class="page-wrap" id="pageWrap">
+    <div class="loader" id="loader">
+        <div class="spinner"></div>
+        Načítám plán…
+    </div>
+</div>
+
+<!-- Modal: detail cíle -->
+<div class="modal-overlay" id="goalModal">
+    <div class="modal" id="goalModalContent">
+        <div class="modal__handle"></div>
+        <button class="modal__close" id="goalModalClose">✕</button>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import {
+    initFirebase, requireAuth, signOutUser,
+    formatDate, formatDateShort, formatStudios, showToast,
+    calcProgress, DEFAULT_TEMPLATE, buildDayProgress,
+    calcWeeklyProgress,
+    isDemoMode, demoSession, buildDemoAdaptation, buildDemoWeeklyAdaptation,
+} from './adaptace-common.js';
+
+const CDN = 'https://www.gstatic.com/firebasejs/12.9.0';
+
+const pageWrap = document.getElementById('pageWrap');
+const loader   = document.getElementById('loader');
+const goalModal        = document.getElementById('goalModal');
+const goalModalContent = document.getElementById('goalModalContent');
+document.getElementById('goalModalClose').addEventListener('click', closeGoalModal);
+goalModal.addEventListener('click', e => { if (e.target === goalModal) closeGoalModal(); });
+
+function closeGoalModal() {
+    goalModal.classList.remove('visible');
+    document.body.style.overflow = '';
+}
+
+// ── AUTH / DEMO ───────────────────────────────────────────────────────────────
+let session, db;
+
+if (isDemoMode()) {
+    session = demoSession('employee');
+} else {
+    session = await requireAuth(null);
+    if (!session) throw new Error('not authenticated');
+    ({ db } = await initFirebase());
+}
+
+const { user, profile } = session;
+document.getElementById('topbarName').textContent =
+    profile?.name ?? user.email ?? '';
+document.getElementById('btnLogout').addEventListener('click',
+    isDemoMode() ? () => { window.location.href = 'login.html'; } : signOutUser);
+
+// ── LOAD ADAPTATION ────────────────────────────────────────────────────────────
+async function loadAdaptation() {
+    if (isDemoMode()) {
+        const plan = new URLSearchParams(window.location.search).get('plan');
+        return plan === 'weekly' ? buildDemoWeeklyAdaptation() : buildDemoAdaptation();
+    }
+
+    const { collection, query, where, getDocs } =
+        await import(`${CDN}/firebase-firestore.js`);
+    // "Moje identita": slug u nových lidí (admin konzole), uid u starší Adaptace.
+    const myIds = [user.uid, profile?.id].filter(Boolean);
+    const q = query(
+        collection(db, 'adaptations'),
+        where('employeeId', 'in', myIds),
+        where('status', 'in', ['active', 'paused'])
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+}
+
+let adaptation = await loadAdaptation();
+
+loader.remove();
+
+if (!adaptation) {
+    renderNoAdaptation();
+} else {
+    renderPlan(adaptation);
+}
+
+// ── NO ADAPTATION ──────────────────────────────────────────────────────────────
+function renderNoAdaptation() {
+    pageWrap.innerHTML = `
+        <div class="section-header"><h1>Můj adaptační plán</h1></div>
+        <div class="card" style="text-align:center;padding:48px 24px;">
+            <div style="font-size:40px;margin-bottom:16px;">📋</div>
+            <div style="font-size:16px;font-weight:600;margin-bottom:8px;">Zatím nemáš žádný plán</div>
+            <div class="text-dim" style="font-size:13px;">
+                Tvůj vedoucí nebo HR tě brzy přidá do adaptačního programu.
+            </div>
+        </div>`;
+}
+
+// ── RENDER PLAN ────────────────────────────────────────────────────────────────
+function renderPlan(adp) {
+    if (adp.templateType === 'weekly') return renderWeeklyPlan(adp);
+    return renderDailyPlan(adp);
+}
+
+function renderDailyPlan(adp) {
+    const { done, total, pct } = calcProgress(adp);
+    const startDate = adp.startDate?.toDate?.() ?? new Date(adp.startDate);
+    const days = adp.days ?? [];
+
+    pageWrap.innerHTML = `
+        <div class="section-header">
+            <div>
+                <h1>${adp.employeeName ?? ''}</h1>
+                <div class="text-dim" style="font-size:13px;margin-top:2px;">
+                    Nástup: ${formatDate(startDate)} &nbsp;·&nbsp; Studio ${formatStudios(adp.studioKey)}
+                </div>
+            </div>
+            <span class="badge badge--${adp.status === 'active' ? 'in-progress' : 'pending'}">
+                ${adp.status === 'active' ? 'Probíhá' : 'Pozastaveno'}
+            </span>
+        </div>
+
+        <!-- Progress -->
+        <div class="progress-wrap">
+            <div class="progress-label">
+                <span>Postup adaptace</span>
+                <strong>${done} / ${total} dní</strong>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="progress-days" id="progressDots"></div>
+        </div>
+
+        <!-- Days -->
+        <div id="dayList"></div>
+    `;
+
+    // Progress dots
+    const dotsEl = document.getElementById('progressDots');
+    days.forEach((day, i) => {
+        const dot = document.createElement('div');
+        const cls = dayDotClass(day);
+        dot.className = `progress-dot ${cls}`;
+        dot.title = `Den ${day.dayNumber}: ${day.label}`;
+        dot.textContent = day.dayNumber;
+        if (day.type === 'milestone') dot.classList.add('progress-dot--milestone');
+        dot.addEventListener('click', () => scrollToDay(i));
+        dotsEl.appendChild(dot);
+    });
+
+    // Day cards
+    const listEl = document.getElementById('dayList');
+    days.forEach((day, i) => renderDayCard(day, i, listEl, adp.id));
+}
+
+function dayDotClass(day) {
+    if (day.status === 'confirmed') return 'progress-dot--confirmed';
+    if (day.status === 'completed') return 'progress-dot--done';
+    return '';
+}
+
+function scrollToDay(index) {
+    const card = document.getElementById(`day-${index}`);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── DAY CARD ───────────────────────────────────────────────────────────────────
+function renderDayCard(day, index, container, adaptationId) {
+    const el = document.createElement('div');
+    el.id = `day-${index}`;
+    el.className = `day-card${day.status === 'confirmed' ? ' day-card--confirmed' : ''}`;
+    if (adaptation.currentDayIndex === index) el.classList.add('day-card--active');
+
+    const typeBadge = dayTypeBadge(day.type);
+    const statusBadge = dayStatusBadge(day.status);
+    const plannedStr = day.plannedDate
+        ? `<span>📅 ${formatDateShort(new Date(day.plannedDate))}</span>` : '';
+
+    const allTasks = countAllTasks(day);
+    const checkedTasks = countCheckedTasks(day);
+    const taskStr = `${checkedTasks}/${allTasks} úkolů`;
+
+    el.innerHTML = `
+        <div class="day-card__header">
+            <div class="day-card__number">${day.dayNumber}</div>
+            <div class="day-card__info">
+                <div class="day-card__title">${day.label}</div>
+                <div class="day-card__meta">
+                    ${typeBadge}
+                    ${statusBadge}
+                    ${plannedStr}
+                    <span class="text-muted">${taskStr}</span>
+                </div>
+            </div>
+            <span class="day-card__chevron">›</span>
+        </div>
+        <div class="day-card__body">
+            ${day.type === 'onsite' ? renderOnsiteNote(day) : ''}
+            ${renderBlocks(day.morningBlocks, 'Dopoledne', index, adaptationId)}
+            ${renderBlocks(day.afternoonBlocks, 'Odpoledne', index, adaptationId)}
+            ${renderDayActions(day, index, adaptationId)}
+        </div>
+    `;
+
+    // Toggle open/close
+    el.querySelector('.day-card__header').addEventListener('click', () => {
+        el.classList.toggle('day-card--open');
+    });
+
+    container.appendChild(el);
+
+    // Auto-open current day
+    if (adaptation.currentDayIndex === index) {
+        el.classList.add('day-card--open');
+    }
+}
+
+function renderOnsiteNote(day) {
+    const locations = [
+        ...day.morningBlocks.filter(b => b.isOnsite).map(b => b.onsiteLocation),
+        ...day.afternoonBlocks.filter(b => b.isOnsite).map(b => b.onsiteLocation),
+    ].filter(Boolean);
+    const unique = [...new Set(locations)];
+    if (!unique.length) return '';
+    return `<div style="padding-top:14px;">
+        ${unique.map(loc => `
+            <div class="block-item__onsite">
+                📍 ${loc}
+                <a href="https://maps.google.com/?q=${encodeURIComponent(loc)}"
+                   target="_blank" style="color:var(--warning);margin-left:6px;font-size:11px;">
+                    Otevřít mapu ↗
+                </a>
+            </div>`).join('')}
+    </div>`;
+}
+
+function renderBlocks(blocks, label, dayIndex, adaptationId) {
+    if (!blocks?.length) return '';
+    return `
+        <div class="block-section">
+            <div class="block-section__label">${label}</div>
+            ${blocks.map(block => renderBlock(block, dayIndex, adaptationId)).join('')}
+        </div>`;
+}
+
+function renderBlock(block, dayIndex, adaptationId) {
+    const day = adaptation.days[dayIndex];
+    const blockProgress = day.blocks?.find(b => b.blockId === block.id);
+
+    const tasks = block.tasks.map((task, taskIdx) => {
+        const taskProgress = blockProgress?.tasks?.[taskIdx];
+        const checked = taskProgress?.checkedByEmployee ?? false;
+        const isConfirmed = day.status === 'confirmed';
+
+        return `
+            <li class="task-item${checked ? ' task-item--checked' : ''}">
+                <input type="checkbox"
+                    class="task-item__checkbox"
+                    id="task-${dayIndex}-${block.id}-${taskIdx}"
+                    data-day="${dayIndex}"
+                    data-block="${block.id}"
+                    data-task="${taskIdx}"
+                    ${checked ? 'checked' : ''}
+                    ${isConfirmed ? 'disabled' : ''}>
+                <label class="task-item__label"
+                    for="task-${dayIndex}-${block.id}-${taskIdx}">
+                    ${task}
+                </label>
+            </li>`;
+    }).join('');
+
+    const onsiteHtml = block.isOnsite
+        ? `<div class="block-item__onsite">📍 ${block.onsiteLocation ?? 'Výjezd'}</div>`
+        : '';
+
+    const deptLabel = deptName(block.department);
+
+    return `
+        <div class="block-item">
+            <div class="block-item__header">
+                <span class="block-item__title">${block.title}</span>
+                <span class="block-item__duration">${block.durationMinutes} min &nbsp;·&nbsp; ${deptLabel}</span>
+            </div>
+            ${onsiteHtml}
+            <ul class="task-list">${tasks}</ul>
+        </div>`;
+}
+
+function renderDayActions(day, index, adaptationId) {
+    if (day.status === 'confirmed') {
+        const by = day.supervisorNote
+            ? `<div class="text-dim" style="font-size:12px;margin-top:8px;">
+                💬 <em>${day.supervisorNote}</em></div>`
+            : '';
+        return `<div class="day-actions">
+            <span class="badge badge--confirmed">✓ Potvrzeno vedoucím</span>
+            ${by}
+        </div>`;
+    }
+
+    if (day.status === 'completed') {
+        return `<div class="day-actions">
+            <span class="badge badge--completed">✓ Odesláno ke schválení</span>
+            <span class="text-dim" style="font-size:12px;">Čeká na potvrzení vedoucím.</span>
+        </div>`;
+    }
+
+    const allDone = countCheckedTasks(day) === countAllTasks(day) && countAllTasks(day) > 0;
+
+    const noteSection = `
+        <div class="day-note" style="width:100%">
+            <label>Poznámka (nepovinné)</label>
+            <textarea id="note-${index}" placeholder="Postřehy, otázky, co tě překvapilo…">${day.employeeNote ?? ''}</textarea>
+        </div>`;
+
+    const completeBtn = `
+        <button class="btn btn--primary" id="btnComplete-${index}"
+            ${!allDone ? 'disabled' : ''}>
+            ${day.requiresConfirmation ? '🏆 Označit milník jako splněný' : '✓ Označit den jako splněný'}
+        </button>`;
+
+    const hint = !allDone
+        ? `<span class="text-dim" style="font-size:12px;">Odškrtni všechny úkoly, pak můžeš označit den.</span>`
+        : '';
+
+    return `<div class="day-actions">${noteSection}${completeBtn}${hint}</div>`;
+}
+
+// ── WEEKLY PLAN (projektový specialista) ────────────────────────────────────────
+function renderWeeklyPlan(adp) {
+    const { done, total, pct } = calcWeeklyProgress(adp);
+    const startDate = adp.startDate?.toDate?.() ?? new Date(adp.startDate);
+
+    pageWrap.innerHTML = `
+        <div class="section-header">
+            <div>
+                <h1>${adp.employeeName ?? ''}</h1>
+                <div class="text-dim" style="font-size:13px;margin-top:2px;">
+                    Nástup: ${formatDate(startDate)} &nbsp;·&nbsp; Studio ${formatStudios(adp.studioKey)}
+                </div>
+            </div>
+            <span class="badge badge--${adp.status === 'active' ? 'in-progress' : 'pending'}">
+                ${adp.status === 'active' ? 'Probíhá' : 'Pozastaveno'}
+            </span>
+        </div>
+
+        <div class="progress-wrap">
+            <div class="progress-label">
+                <span>Postup adaptace</span>
+                <strong>${done} / ${total} cílů</strong>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
+        </div>
+
+        <div id="phaseList"></div>
+
+        <div class="section-header" style="padding-top:24px;">
+            <h2>Průběžné cíle (celých 90 dní)</h2>
+        </div>
+        <div id="ongoingList"></div>
+    `;
+
+    const phaseListEl = document.getElementById('phaseList');
+    adp.phases.forEach((phase, pi) => phaseListEl.appendChild(renderPhaseSection(phase, pi, adp)));
+
+    const ongoingListEl = document.getElementById('ongoingList');
+    adp.ongoingCategories.forEach(cat => ongoingListEl.appendChild(renderOngoingCategory(cat, adp)));
+}
+
+function goalPersonLabel(goal, adp) {
+    if (goal.confirmerRole && adp.roles?.[goal.confirmerRole]) {
+        return `${goal.responsibleLabel} · ${adp.roles[goal.confirmerRole].name}`;
+    }
+    return goal.responsibleLabel || '';
+}
+
+function renderPhaseSection(phase, phaseIndex, adp) {
+    const allGoals = phase.weeks.flatMap(w => w.goals);
+    const doneCount = allGoals.filter(g => g.status === 'completed' || g.status === 'confirmed').length;
+
+    const el = document.createElement('div');
+    el.className = 'card phase-section';
+    el.innerHTML = `
+        <div class="phase-section__header">
+            <div>
+                <div class="phase-section__title">Fáze ${phase.phaseNumber} — ${phase.name}</div>
+                <div class="phase-section__goal">${phase.goal ?? ''} &nbsp;·&nbsp; Týdny ${phase.weekFrom}–${phase.weekTo}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <span class="text-muted" style="font-size:12px;">${doneCount}/${allGoals.length}</span>
+                <span class="day-card__chevron phase-section__chevron">›</span>
+            </div>
+        </div>
+        <div class="phase-section__body">
+            ${phase.weeks.map(week => renderWeekBlock(week, phaseIndex, adp)).join('')}
+        </div>
+    `;
+    el.querySelector('.phase-section__header').addEventListener('click', () => {
+        el.classList.toggle('phase-section--open');
+    });
+    return el;
+}
+
+function renderWeekBlock(week, phaseIndex, adp) {
+    const weekIndex = adp.phases[phaseIndex].weeks.indexOf(week);
+    const noteHtml = week.note ? `<span class="text-dim" style="font-weight:400;text-transform:none;letter-spacing:normal;">— ${week.note}</span>` : '';
+    return `
+        <div class="week-block">
+            <div class="week-block__label">Týden ${week.weekNumber} ${noteHtml}</div>
+            <ul class="task-list">
+                ${week.goals.map((goal, gi) => renderGoalItem(goal, phaseIndex, weekIndex, gi, adp)).join('')}
+            </ul>
+        </div>`;
+}
+
+function renderGoalItem(goal, phaseIndex, weekIndex, goalIndex, adp) {
+    const checked = goal.status === 'completed' || goal.status === 'confirmed';
+    const locked = goal.status === 'confirmed';
+    const personLabel = goalPersonLabel(goal, adp);
+    const statusBadge = goal.status === 'confirmed'
+        ? `<span class="badge badge--confirmed">Potvrzeno</span>`
+        : goal.status === 'completed'
+            ? `<span class="badge badge--completed">Čeká na potvrzení</span>`
+            : '';
+    const noteBadge = goal.supervisorNote
+        ? `<span class="badge badge--note">💬 Poznámka od manažera</span>`
+        : '';
+
+    return `
+        <li class="task-item${checked ? ' task-item--checked' : ''}">
+            <input type="checkbox"
+                class="task-item__checkbox goal-checkbox"
+                id="goal-${phaseIndex}-${weekIndex}-${goalIndex}"
+                data-phase="${phaseIndex}" data-week="${weekIndex}" data-goal="${goalIndex}"
+                ${checked ? 'checked' : ''}
+                ${locked ? 'disabled' : ''}>
+            <span class="task-item__label goal-item__open"
+                data-phase="${phaseIndex}" data-week="${weekIndex}" data-goal="${goalIndex}" style="flex:1;cursor:pointer;">
+                ${goal.text}
+                ${personLabel ? `<div class="text-dim" style="font-size:11px;margin-top:2px;">${personLabel}</div>` : ''}
+            </span>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                ${statusBadge}
+                ${noteBadge}
+            </div>
+        </li>`;
+}
+
+// ── ONGOING CATEGORIES (projektový specialista) ─────────────────────────────────
+function renderOngoingCategory(cat, adp) {
+    const catIndex = adp.ongoingCategories.indexOf(cat);
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.marginBottom = '12px';
+    el.innerHTML = `
+        <div class="phase-section__title" style="margin-bottom:10px;">${cat.label}</div>
+        ${cat.goals.map((goal, gi) => renderQuotaItem(goal, catIndex, gi)).join('')}
+    `;
+    return el;
+}
+
+function renderQuotaItem(goal, catIndex, goalIndex) {
+    const done = goal.status === 'completed';
+    if (goal.targetCount == null) {
+        return `
+            <div class="quota-item${done ? ' quota-item--done' : ''}">
+                <span class="quota-item__text">${goal.text}</span>
+                <input type="checkbox" class="task-item__checkbox quota-checkbox"
+                    data-cat="${catIndex}" data-goal="${goalIndex}"
+                    ${done ? 'checked' : ''}>
+            </div>`;
+    }
+    return `
+        <div class="quota-item${done ? ' quota-item--done' : ''}">
+            <span class="quota-item__text">${goal.text}</span>
+            <span class="quota-item__count">
+                <input type="number" class="quota-item__input quota-count-input" min="0"
+                    data-cat="${catIndex}" data-goal="${goalIndex}" value="${goal.currentCount}">
+                / ${goal.targetCount}
+            </span>
+        </div>`;
+}
+
+// ── EVENT DELEGATION ────────────────────────────────────────────────────────────
+pageWrap.addEventListener('change', async (e) => {
+    if (!e.target.matches('.task-item__checkbox') || e.target.matches('.goal-checkbox')) return;
+
+    const dayIndex  = parseInt(e.target.dataset.day);
+    const blockId   = e.target.dataset.block;
+    const taskIndex = parseInt(e.target.dataset.task);
+    const checked   = e.target.checked;
+
+    e.target.disabled = true;
+
+    try {
+        await toggleTask(adaptation.id, dayIndex, blockId, taskIndex, checked);
+
+        // Update local state
+        const bProgress = adaptation.days[dayIndex].blocks.find(b => b.blockId === blockId);
+        if (bProgress) {
+            bProgress.tasks[taskIndex].checkedByEmployee = checked;
+            bProgress.tasks[taskIndex].checkedAt = checked ? new Date().toISOString() : null;
+        }
+
+        // Update task-item style
+        const li = e.target.closest('.task-item');
+        li?.classList.toggle('task-item--checked', checked);
+
+        // Update "mark complete" button
+        updateCompleteButton(dayIndex);
+
+        // Update progress dots
+        refreshProgressDots();
+    } catch (err) {
+        e.target.checked = !checked;
+        showToast('Uložení se nezdařilo.', 'danger');
+        console.error(err);
+    } finally {
+        e.target.disabled = false;
+    }
+});
+
+pageWrap.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[id^="btnComplete-"]');
+    if (!btn) return;
+
+    const dayIndex = parseInt(btn.id.replace('btnComplete-', ''));
+    btn.disabled = true;
+    btn.textContent = 'Ukládám…';
+
+    try {
+        const note = document.getElementById(`note-${dayIndex}`)?.value ?? '';
+        await completeDay(adaptation.id, dayIndex, note);
+
+        adaptation.days[dayIndex].status = 'completed';
+        adaptation.days[dayIndex].employeeNote = note;
+
+        // Re-render the day card
+        const cardEl = document.getElementById(`day-${dayIndex}`);
+        const wasOpen = cardEl?.classList.contains('day-card--open');
+        cardEl?.remove();
+
+        const listEl = document.getElementById('dayList');
+        const allCards = listEl.querySelectorAll('.day-card');
+        const refCard = allCards[dayIndex] ?? null;
+
+        const tempContainer = document.createElement('div');
+        renderDayCard(adaptation.days[dayIndex], dayIndex, tempContainer, adaptation.id);
+        const newCard = tempContainer.firstElementChild;
+        if (wasOpen) newCard.classList.add('day-card--open');
+        listEl.insertBefore(newCard, refCard);
+
+        refreshProgressDots();
+        showToast('Den označen jako splněný ✓', 'success');
+    } catch (err) {
+        btn.disabled = false;
+        btn.textContent = adaptation.days[dayIndex].requiresConfirmation
+            ? '🏆 Označit milník jako splněný'
+            : '✓ Označit den jako splněný';
+        showToast('Uložení se nezdařilo.', 'danger');
+        console.error(err);
+    }
+});
+
+// ── WEEKLY EVENT DELEGATION (projektový specialista) ────────────────────────────
+pageWrap.addEventListener('change', async (e) => {
+    if (e.target.matches('.goal-checkbox')) {
+        const phaseIndex = parseInt(e.target.dataset.phase);
+        const weekIndex  = parseInt(e.target.dataset.week);
+        const goalIndex  = parseInt(e.target.dataset.goal);
+        const checked    = e.target.checked;
+
+        e.target.disabled = true;
+        try {
+            await toggleGoal(adaptation.id, phaseIndex, weekIndex, goalIndex, checked);
+
+            const goal = adaptation.phases[phaseIndex].weeks[weekIndex].goals[goalIndex];
+            goal.status = checked ? 'completed' : 'pending';
+            goal.checkedAt = checked ? new Date().toISOString() : null;
+
+            const li = e.target.closest('.task-item');
+            li?.classList.toggle('task-item--checked', checked);
+            renderPlan(adaptation);
+            showToast(checked ? 'Cíl označen, čeká na potvrzení.' : 'Cíl vrácen.', checked ? 'success' : '');
+            openGoalDetail(phaseIndex, weekIndex, goalIndex);
+        } catch (err) {
+            e.target.checked = !checked;
+            showToast('Uložení se nezdařilo.', 'danger');
+            console.error(err);
+        } finally {
+            e.target.disabled = false;
+        }
+        return;
+    }
+
+    if (e.target.matches('.quota-checkbox')) {
+        const catIndex  = parseInt(e.target.dataset.cat);
+        const goalIndex = parseInt(e.target.dataset.goal);
+        const checked   = e.target.checked;
+
+        e.target.disabled = true;
+        try {
+            await toggleQuotaGoal(adaptation.id, catIndex, goalIndex, checked);
+            adaptation.ongoingCategories[catIndex].goals[goalIndex].status = checked ? 'completed' : 'pending';
+            renderPlan(adaptation);
+            showToast('Uloženo ✓', 'success');
+        } catch (err) {
+            e.target.checked = !checked;
+            showToast('Uložení se nezdařilo.', 'danger');
+            console.error(err);
+        } finally {
+            e.target.disabled = false;
+        }
+        return;
+    }
+
+    if (e.target.matches('.quota-count-input')) {
+        const catIndex  = parseInt(e.target.dataset.cat);
+        const goalIndex = parseInt(e.target.dataset.goal);
+        const goal = adaptation.ongoingCategories[catIndex].goals[goalIndex];
+        const value = Math.max(0, parseInt(e.target.value) || 0);
+        e.target.value = value;
+        e.target.disabled = true;
+
+        try {
+            await updateQuotaCount(adaptation.id, catIndex, goalIndex, value);
+            goal.currentCount = value;
+            goal.status = value >= goal.targetCount ? 'completed' : 'pending';
+            renderPlan(adaptation);
+        } catch (err) {
+            showToast('Uložení se nezdařilo.', 'danger');
+            console.error(err);
+        } finally {
+            e.target.disabled = false;
+        }
+        return;
+    }
+
+});
+
+// ── GOAL DETAIL MODAL (poznámky) ─────────────────────────────────────────────────
+pageWrap.addEventListener('click', e => {
+    const openEl = e.target.closest('.goal-item__open');
+    if (!openEl) return;
+    openGoalDetail(
+        parseInt(openEl.dataset.phase),
+        parseInt(openEl.dataset.week),
+        parseInt(openEl.dataset.goal),
+    );
+});
+
+function openGoalDetail(phaseIndex, weekIndex, goalIndex) {
+    const goal = adaptation.phases[phaseIndex].weeks[weekIndex].goals[goalIndex];
+    const personLabel = goalPersonLabel(goal, adaptation);
+    const statusLabel = goal.status === 'confirmed' ? 'Potvrzeno'
+        : goal.status === 'completed' ? 'Čeká na potvrzení' : 'Nesplněno';
+
+    const supervisorNoteHtml = goal.supervisorNote
+        ? `<div style="background:var(--surface3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;margin-top:12px;">
+            <span class="text-dim">💬 Poznámka od manažera:</span><br>
+            <em>${goal.supervisorNote}</em>
+        </div>`
+        : '';
+
+    goalModalContent.innerHTML = `
+        <div class="modal__handle"></div>
+        <button class="modal__close" id="goalModalClose2">✕</button>
+        <div class="modal__title" style="margin-bottom:4px;">${goal.text}</div>
+        <div class="text-dim" style="font-size:13px;margin-bottom:16px;">
+            ${personLabel ? personLabel + ' &nbsp;·&nbsp; ' : ''}${statusLabel}
+        </div>
+        <div class="day-note">
+            <label>Tvoje poznámka</label>
+            <textarea id="goalDetailNote" placeholder="Postřehy, otázky, co tě napadlo…">${goal.employeeNote ?? ''}</textarea>
+        </div>
+        <button class="btn btn--primary" id="btnSaveGoalNote" style="margin-top:10px;">Uložit poznámku</button>
+        ${supervisorNoteHtml}
+    `;
+
+    document.getElementById('goalModalClose2').addEventListener('click', closeGoalModal);
+    document.getElementById('btnSaveGoalNote').addEventListener('click', async () => {
+        const btn = document.getElementById('btnSaveGoalNote');
+        const note = document.getElementById('goalDetailNote').value;
+        btn.disabled = true;
+        btn.textContent = 'Ukládám…';
+        try {
+            await updateGoalEmployeeNote(adaptation.id, phaseIndex, weekIndex, goalIndex, note);
+            goal.employeeNote = note;
+            closeGoalModal();
+            renderPlan(adaptation);
+            showToast('Poznámka uložena ✓', 'success');
+        } catch (err) {
+            btn.disabled = false;
+            btn.textContent = 'Uložit poznámku';
+            showToast('Uložení se nezdařilo.', 'danger');
+            console.error(err);
+        }
+    });
+
+    goalModal.classList.add('visible');
+    document.body.style.overflow = 'hidden';
+}
+
+// ── FIRESTORE WRITES ────────────────────────────────────────────────────────────
+// Firestore neumí adresovat prvek pole podle indexu přes dot-path (`days.0.blocks`
+// nefunguje spolehlivě — pole nejsou mapy), proto se vždy přepisuje celé pole `days`
+// najednou — stejně jako u `phases`/`ongoingCategories` v týdenní šabloně níže.
+function withDayUpdate(days, dayIndex, patch) {
+    return days.map((day, i) => i !== dayIndex ? day : { ...day, ...patch });
+}
+
+async function toggleTask(adaptationId, dayIndex, blockId, taskIndex, checked) {
+    if (isDemoMode()) return; // local state already updated by caller
+
+    const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+    const blocks = adaptation.days[dayIndex].blocks.map(b => {
+        if (b.blockId !== blockId) return b;
+        return {
+            ...b,
+            tasks: b.tasks.map((t, i) => {
+                if (i !== taskIndex) return t;
+                return { ...t, checkedByEmployee: checked, checkedAt: checked ? new Date().toISOString() : null };
+            }),
+        };
+    });
+    const days = withDayUpdate(adaptation.days, dayIndex, { blocks });
+    await upd(d(db, 'adaptations', adaptationId), { days });
+}
+
+async function completeDay(adaptationId, dayIndex, note) {
+    if (isDemoMode()) return; // local state already updated by caller
+
+    const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+    const days = withDayUpdate(adaptation.days, dayIndex, {
+        status: 'completed',
+        actualDate: new Date().toISOString().split('T')[0],
+        employeeNote: note,
+    });
+    await upd(d(db, 'adaptations', adaptationId), {
+        days,
+        currentDayIndex: dayIndex + 1,
+    });
+}
+
+// Firestore neumí adresovat prvek pole podle indexu přes dot-path (`phases.0.weeks.1...`),
+// proto se vždy přepisuje celé pole `phases` / `ongoingCategories` najednou.
+// Firestore neumí adresovat prvek pole podle indexu přes dot-path, proto se vždy přepisuje
+// celé pole `phases` najednou (stejně jako u ongoingCategories a jako v tym.html).
+function withGoalUpdate(phaseIndex, weekIndex, goalIndex, patch) {
+    return adaptation.phases.map((phase, pi) => {
+        if (pi !== phaseIndex) return phase;
+        return {
+            ...phase,
+            weeks: phase.weeks.map((week, wi) => {
+                if (wi !== weekIndex) return week;
+                return {
+                    ...week,
+                    goals: week.goals.map((goal, gi) => {
+                        if (gi !== goalIndex) return goal;
+                        return { ...goal, ...patch };
+                    }),
+                };
+            }),
+        };
+    });
+}
+
+async function toggleGoal(adaptationId, phaseIndex, weekIndex, goalIndex, checked) {
+    if (isDemoMode()) return;
+
+    const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+    const phases = withGoalUpdate(phaseIndex, weekIndex, goalIndex, {
+        status: checked ? 'completed' : 'pending',
+        checkedAt: checked ? new Date().toISOString() : null,
+    });
+    await upd(d(db, 'adaptations', adaptationId), { phases });
+}
+
+async function updateGoalEmployeeNote(adaptationId, phaseIndex, weekIndex, goalIndex, note) {
+    if (isDemoMode()) return;
+
+    const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+    const phases = withGoalUpdate(phaseIndex, weekIndex, goalIndex, { employeeNote: note });
+    await upd(d(db, 'adaptations', adaptationId), { phases });
+}
+
+async function toggleQuotaGoal(adaptationId, catIndex, goalIndex, checked) {
+    if (isDemoMode()) return;
+
+    const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+    const ongoingCategories = adaptation.ongoingCategories.map((cat, ci) => {
+        if (ci !== catIndex) return cat;
+        return {
+            ...cat,
+            goals: cat.goals.map((goal, gi) => {
+                if (gi !== goalIndex) return goal;
+                return { ...goal, status: checked ? 'completed' : 'pending' };
+            }),
+        };
+    });
+    await upd(d(db, 'adaptations', adaptationId), { ongoingCategories });
+}
+
+async function updateQuotaCount(adaptationId, catIndex, goalIndex, value) {
+    if (isDemoMode()) return;
+
+    const { updateDoc: upd, doc: d } = await import(`${CDN}/firebase-firestore.js`);
+    const ongoingCategories = adaptation.ongoingCategories.map((cat, ci) => {
+        if (ci !== catIndex) return cat;
+        return {
+            ...cat,
+            goals: cat.goals.map((goal, gi) => {
+                if (gi !== goalIndex) return goal;
+                return { ...goal, currentCount: value, status: value >= goal.targetCount ? 'completed' : 'pending' };
+            }),
+        };
+    });
+    await upd(d(db, 'adaptations', adaptationId), { ongoingCategories });
+}
+
+// ── UI HELPERS ─────────────────────────────────────────────────────────────────
+function updateCompleteButton(dayIndex) {
+    const btn = document.getElementById(`btnComplete-${dayIndex}`);
+    if (!btn) return;
+    const allDone = countCheckedTasks(adaptation.days[dayIndex]) === countAllTasks(adaptation.days[dayIndex]);
+    btn.disabled = !allDone;
+    const hint = btn.parentElement.querySelector('.text-dim');
+    if (hint) hint.style.display = allDone ? 'none' : '';
+}
+
+function refreshProgressDots() {
+    const dotsEl = document.getElementById('progressDots');
+    if (!dotsEl) return;
+    const dots = dotsEl.querySelectorAll('.progress-dot');
+    adaptation.days.forEach((day, i) => {
+        const dot = dots[i];
+        if (!dot) return;
+        dot.className = `progress-dot ${dayDotClass(day)}`;
+        if (day.type === 'milestone') dot.classList.add('progress-dot--milestone');
+        if (adaptation.currentDayIndex === i) dot.classList.add('progress-dot--active');
+    });
+    const { done, total, pct } = calcProgress(adaptation);
+    const fill = pageWrap.querySelector('.progress-fill');
+    const label = pageWrap.querySelector('.progress-label strong');
+    if (fill)  fill.style.width = pct + '%';
+    if (label) label.textContent = `${done} / ${total} dní`;
+}
+
+function countAllTasks(day) {
+    return [...(day.morningBlocks ?? []), ...(day.afternoonBlocks ?? [])]
+        .reduce((sum, b) => sum + (b.tasks?.length ?? 0), 0);
+}
+
+function countCheckedTasks(day) {
+    return (day.blocks ?? [])
+        .reduce((sum, b) => sum + b.tasks.filter(t => t.checkedByEmployee).length, 0);
+}
+
+function dayTypeBadge(type) {
+    const map = {
+        milestone: `<span class="badge badge--milestone">🏆 Milník</span>`,
+        wow:       `<span class="badge badge--wow">⭐ WOW den</span>`,
+        onsite:    `<span class="badge badge--onsite">📍 Výjezd</span>`,
+        standard:  '',
+    };
+    return map[type] ?? '';
+}
+
+function dayStatusBadge(status) {
+    const map = {
+        pending:     '',
+        in_progress: `<span class="badge badge--in-progress">Probíhá</span>`,
+        completed:   `<span class="badge badge--completed">Splněno</span>`,
+        confirmed:   `<span class="badge badge--confirmed">Potvrzeno</span>`,
+    };
+    return map[status] ?? '';
+}
+
+function deptName(dept) {
+    const map = {
+        obchod:  'Obchod',
+        projekt: 'Projekt',
+        sklad:   'Sklad',
+        montaz:  'Montáž',
+        servis:  'Servis',
+        finance: 'Finance',
+        vse:     'Vše',
+    };
+    return map[dept] ?? dept;
+}
+
+</script>
+</body>
+</html>

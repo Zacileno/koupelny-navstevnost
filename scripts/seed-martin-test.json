@@ -1,0 +1,14 @@
+{
+  "employee": {
+    "name": "Martin Paclík",
+    "email": "martin.paclik@koupelny-syrovy.cz",
+    "studioKey": ["praha"],
+    "startDate": "2026-07-13"
+  },
+  "roles": {
+    "manager":          { "name": "Barča Syrová", "email": "barca.syrova@koupelny-syrovy.cz" },
+    "managerDeputy":    { "name": "Matouš" },
+    "seniorSpecialist": { "name": "Barča Syrová" },
+    "buddy":            { "name": "Naty" }
+  }
+}

@@ -74,6 +74,27 @@
     }
     header a.btn-dash:hover { background: rgba(23,158,217,.12); }
 
+    header #userName {
+      font-size: 11px;
+      color: var(--text2);
+      margin-right: 4px;
+    }
+    header #logoutBtn {
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text2);
+      background: none;
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    header #logoutBtn:hover { color: var(--text); border-color: var(--text2); }
+
     .container {
       max-width: 680px;
       margin: 0 auto;
@@ -393,6 +414,8 @@
   <div class="logo">Koupelny</div>
   <h1>Zápis z kontroly realizace</h1>
   <div class="spacer"></div>
+  <span id="userName"></span>
+  <button type="button" id="logoutBtn">Odhlásit</button>
   <a href="realizace-dashboard.html" class="btn-dash">Dashboard →</a>
 </header>
 
@@ -624,28 +647,22 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- Firebase -->
+<!-- Přihlášení + Firebase -->
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, serverTimestamp }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-  import { getStorage, ref, uploadBytes, getDownloadURL }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+  import { initFirebase, requireAuth, signOutUser } from '../shared/auth-common.js';
 
-  // ====== KONFIGURACE — stejná jako u projektu návštěvnosti ======
-  const firebaseConfig = {
-    apiKey: "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
-    authDomain: "koupelny-navstevnost.firebaseapp.com",
-    projectId: "koupelny-navstevnost",
-    storageBucket: "koupelny-navstevnost.firebasestorage.app",
-    messagingSenderId: "263800017951",
-    appId: "1:263800017951:web:012c10ee687fcadab9f12a",
-    measurementId: "G-9PH88D78DP"
-  };
-  // ===============================================================
+  const session = await requireAuth('/login.html');
+  if (!session) throw new Error('not authenticated'); // requireAuth už přesměroval na login
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+  document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+  const { collection, addDoc, serverTimestamp } =
+    await import('https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js');
+  const { getStorage, ref, uploadBytes, getDownloadURL } =
+    await import('https://www.gstatic.com/firebasejs/12.9.0/firebase-storage.js');
+
+  const { app, db } = await initFirebase();
   const storage = getStorage(app);
 
   // Předvyplnit dnešní datum

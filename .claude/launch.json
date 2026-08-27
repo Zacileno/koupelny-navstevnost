@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "koupelny-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8532", "--directory", "public"],
+      "port": 8532
+    }
+  ]
+}

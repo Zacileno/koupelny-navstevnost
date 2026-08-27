@@ -1,0 +1,18 @@
+{
+  "employee": {
+    "name": "Petra Hindráková",
+    "email": "petra.hindrakova@koupelny-syrovy.cz",
+    "studioKey": ["hradec", "pardubice"],
+    "startDate": "2026-07-13"
+  },
+  "roles": {
+    "manager":          { "name": "Barča Syrová", "email": "barca.syrova@koupelny-syrovy.cz" },
+    "managerDeputy":    { "name": "Matouš" },
+    "seniorSpecialist": { "name": "Barča Syrová" },
+    "buddy":            { "name": "Naty" }
+  },
+  "admins": [
+    { "name": "Martin Paclík",  "email": "martin.paclik@koupelny-syrovy.cz" },
+    { "name": "Matouš Syrový",  "email": "matous.syrovy@koupelny-syrovy.cz" }
+  ]
+}

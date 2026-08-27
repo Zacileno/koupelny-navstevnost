@@ -2,7 +2,11 @@
   "firestore": {
     "rules": "firestore.rules"
   },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "hosting": {
+    "site": "koupelny-navstevnost",
     "public": "public",
     "ignore": [
       "firebase.json",

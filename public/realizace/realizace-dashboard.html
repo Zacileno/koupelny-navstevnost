@@ -8,6 +8,7 @@
   <title>Dashboard realizací — Koupelny</title>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -99,6 +100,27 @@
       transition: opacity .2s;
     }
     header a.btn-form:hover { opacity: .82; }
+
+    header #userName {
+      font-size: 11px;
+      color: var(--text2);
+      margin-right: 4px;
+    }
+    header #logoutBtn {
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text2);
+      background: none;
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    header #logoutBtn:hover { color: var(--text); border-color: var(--text2); }
 
     /* MAIN */
     main { padding: 28px; }
@@ -233,7 +255,8 @@
     }
     .table-header input:focus { border-color: var(--blue); }
 
-    table { width: 100%; border-collapse: collapse; }
+    #table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { width: 100%; min-width: 700px; border-collapse: collapse; }
     th {
       text-align: left;
       font-size: 9px;
@@ -417,13 +440,47 @@
       max-height: 0;
       transition: max-height 0.3s ease;
     }
-    .filter-panel.open { max-height: 120px; }
+    .filter-panel.open { max-height: 220px; }
     .filter-panel-inner {
       padding: 14px 22px;
       display: flex;
       align-items: flex-end;
       gap: 12px;
       flex-wrap: wrap;
+    }
+    .col-toggle-wrapper {
+      width: 100%;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .col-toggle-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text2);
+      white-space: nowrap;
+    }
+    .col-check {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+    }
+    .col-check input[type="checkbox"] {
+      accent-color: var(--blue);
+      cursor: pointer;
+      width: 13px;
+      height: 13px;
+      flex-shrink: 0;
     }
     .filter-group {
       display: flex;
@@ -471,6 +528,20 @@
     }
     .btn-reset-filtry:hover { border-color: var(--red); color: var(--red); }
 
+    .btn-export {
+      background-color: #179ED9;
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-family: Montserrat, sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn-export:hover { background-color: #1387ba; }
+    .btn-print { background-color: #444; }
+    .btn-print:hover { background-color: #222; }
+
     @media (max-width: 900px) {
       .charts-row, .charts-row-3, .quality-grid { grid-template-columns: 1fr; }
       header { flex-wrap: wrap; height: auto; padding: 12px 16px; gap: 10px; }
@@ -492,6 +563,8 @@
   </div>
 
   <div class="spacer"></div>
+  <span id="userName"></span>
+  <button type="button" id="logoutBtn">Odhlásit</button>
   <a href="realizace.html" class="btn-form">+ Nový zápis</a>
 </header>
 
@@ -644,24 +717,18 @@
 </div>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, collection, query, where, getDocs, orderBy, doc, updateDoc, deleteDoc }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { initFirebase, requireAuth, signOutUser } from '../shared/auth-common.js';
 
-  // ====== KONFIGURACE — stejná jako u projektu návštěvnosti ======
-  const firebaseConfig = {
-    apiKey: "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
-    authDomain: "koupelny-navstevnost.firebaseapp.com",
-    projectId: "koupelny-navstevnost",
-    storageBucket: "koupelny-navstevnost.firebasestorage.app",
-    messagingSenderId: "263800017951",
-    appId: "1:263800017951:web:012c10ee687fcadab9f12a",
-    measurementId: "G-9PH88D78DP"
-  };
-  // ===============================================================
+  const session = await requireAuth('/login.html');
+  if (!session) throw new Error('not authenticated'); // requireAuth už přesměroval na login
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+  document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+  const { collection, query, where, getDocs, orderBy, doc, updateDoc, deleteDoc } =
+    await import('https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js');
+
+  const { db } = await initFirebase();
 
   // --- LABELS ---
   const PARTA_LABEL = { praha_1:'Praha 1', praha_2:'Praha 2', pardubice_1:'Pardubice 1', pardubice_2:'Pardubice 2', brno:'Brno' };
@@ -671,6 +738,23 @@
   const RIZIKO_LABEL = { bez_rizika:'Bez rizika', male_riziko:'Malé riziko', problem_se_blizi:'Problém se blíží', problem:'Problém', krizova:'Krizová zakázka' };
   const TYP_LABEL = { koupelna:'Koupelna', koupelna_wc:'Koupelna + WC', koupelny_wc:'Koupelny + WC', wc:'WC', obkladacske_kompletace:'Obklad. + kompletace', obkladacske:'Obkladačské práce', zamereni:'Zaměření / tech. obhlídka' };
   const STAR_LABEL = { 5:'Velmi spokojený', 4:'Spokojený', 3:'Neutrální', 2:'Nespokojený', 1:'Velmi nespokojený' };
+
+  // --- OPTIONAL TABLE COLUMNS ---
+  const OPTIONAL_COLS = [
+    { key: 'cas',             label: 'Čas',             render: r => r.cas || '—' },
+    { key: 'typ',             label: 'Typ realizace',   render: r => TYP_LABEL[r.typ] || r.typ || '—' },
+    { key: 'klientPritomen',  label: 'Klient přítomen', render: r => r.klientPritomen === 'ano' ? '✓ Ano' : '✗ Ne' },
+    { key: 'remeslnici',      label: 'Řemeslníků',      render: r => r.remeslnici || '—' },
+    { key: 'kvalita',         label: 'Kvalita',         render: r => KVALITA_LABEL[r.kvalita] || r.kvalita || '—' },
+    { key: 'chybaProjekt',    label: 'Chyba projekt',   render: r => r.chybaProjekt === 'ano' ? '⚠ Ano' : '—' },
+    { key: 'chybaObjednavka', label: 'Chyba obj.',      render: r => r.chybaObjednavka === 'ano' ? '⚠ Ano' : '—' },
+    { key: 'pocasi',          label: 'Počasí',          render: r => !r.pocasi ? '—' : [r.pocasi.teplota != null ? r.pocasi.teplota+'°C' : '', r.pocasi.stav || ''].filter(Boolean).join(' ') || '—' },
+    { key: 'poznamka',        label: 'Poznámka',        render: r => r.poznamka ? r.poznamka.substring(0, 45) + (r.poznamka.length > 45 ? '…' : '') : '—' },
+  ];
+  const LS_COL_KEY = 'realizace_visible_cols';
+  function getVisibleCols() {
+    try { return JSON.parse(localStorage.getItem(LS_COL_KEY)) || []; } catch { return []; }
+  }
 
   // --- STATE ---
   let currentDate = new Date();
@@ -908,6 +992,8 @@
         <div class="table-header">
           <div class="chart-title">Záznamy</div>
           <button class="btn-filtry" id="btn-filtry" onclick="toggleFiltry()">⚙ Filtry</button>
+          <button class="btn-export" onclick="exportToExcel()">⬇ Exportovat do Excelu</button>
+          <button class="btn-export btn-print" onclick="printTable()">🖨 Tisk</button>
           <div class="spacer"></div>
           <input type="text" id="table-search" placeholder="Hledat klienta…" oninput="filterTable()" />
         </div>
@@ -974,6 +1060,10 @@
               </select>
             </div>
             <button class="btn-reset-filtry" onclick="resetFiltry()">✕ Reset</button>
+            <div class="col-toggle-wrapper">
+              <span class="col-toggle-label">Zobrazit sloupce</span>
+              ${OPTIONAL_COLS.map(col => `<label class="col-check"><input type="checkbox" ${getVisibleCols().includes(col.key)?'checked':''} onchange="toggleCol('${col.key}')" />${col.label}</label>`).join('')}
+            </div>
           </div>
         </div>
         <div id="table-wrap">
@@ -1112,15 +1202,18 @@
   function renderTable(data) {
     window._tableData = data;
     if (!data.length) return '<div class="empty">Žádné záznamy pro tento měsíc</div>';
+    const activeCols = OPTIONAL_COLS.filter(c => getVisibleCols().includes(c.key));
     return `<table>
       <thead><tr>
         <th onclick="sortTable('datum')" style="cursor:pointer;user-select:none">Datum ${sortKey==='datum' ? (sortDir==='desc' ? '↓' : '↑') : '<span style="opacity:0.3">↕</span>'}</th>
         <th onclick="sortTable('klient')" style="cursor:pointer;user-select:none">Klient ${sortKey==='klient' ? (sortDir==='desc' ? '↓' : '↑') : '<span style="opacity:0.3">↕</span>'}</th>
-        <th>Místo</th><th>Parta</th><th>Fáze</th><th>Výsledek</th><th>Riziko</th><th>★</th><th>Foto</th><th></th>
+        <th>Místo</th><th>Parta</th><th>Fáze</th><th>Výsledek</th><th>Riziko</th><th>★</th>
+        ${activeCols.map(c => `<th>${c.label}</th>`).join('')}
+        <th>Foto</th><th></th>
       </tr></thead>
       <tbody id="table-body">
         ${data.map((r, idx) => `
-          <tr data-klient="${(r.klient||''). toLowerCase()}">
+          <tr data-klient="${(r.klient||'').toLowerCase()}">
             <td style="white-space:nowrap">${r.datum||'—'}</td>
             <td><strong>${r.klient||'—'}</strong></td>
             <td style="font-size:11px;color:var(--text2)">${r.misto||'—'}</td>
@@ -1129,6 +1222,7 @@
             <td><span class="badge badge-vysledek-${r.vysledek}">${VYSLEDEK_LABEL[r.vysledek]||r.vysledek||'—'}</span></td>
             <td><span class="badge badge-riziko-${r.riziko}">${RIZIKO_LABEL[r.riziko]||r.riziko||'—'}</span></td>
             <td style="color:var(--gold)">${r.spokojenost ? r.spokojenost+'★' : '—'}</td>
+            ${activeCols.map(c => `<td style="font-size:11px;color:var(--text2)">${c.render(r)}</td>`).join('')}
             <td>${r.foto && r.foto.length
               ? `<img class="foto-thumb" src="${r.foto[0]}" onclick="openLightboxByIdx(${idx},0)" />${r.foto.length>1?`<span class="foto-count">+${r.foto.length-1}</span>`:''}`
               : '<span class="foto-count">—</span>'}</td>
@@ -1143,6 +1237,16 @@
     document.querySelectorAll('#table-body tr').forEach(tr => {
       tr.style.display = tr.dataset.klient.includes(q) ? '' : 'none';
     });
+  };
+
+  window.toggleCol = function(key) {
+    const cols = getVisibleCols();
+    const i = cols.indexOf(key);
+    if (i === -1) cols.push(key); else cols.splice(i, 1);
+    localStorage.setItem(LS_COL_KEY, JSON.stringify(cols));
+    document.getElementById('table-wrap').innerHTML = renderTable(filteredData);
+    const searchEl = document.getElementById('table-search');
+    if (searchEl && searchEl.value) filterTable();
   };
 
   // --- INDEX-BASED WRAPPERS ---
@@ -1279,6 +1383,145 @@
     Object.values(chartInstances).forEach(c => c.destroy());
     chartInstances = {};
   }
+
+  function getActiveFiltersInfo() {
+    const labels = [];
+    const suffixParts = [];
+    const misto = document.getElementById('filter-misto')?.value;
+    if (misto) { labels.push('Místo: ' + misto); suffixParts.push(misto); }
+    const parta = document.getElementById('filter-parta')?.value;
+    if (parta) { labels.push('Parta: ' + (PARTA_LABEL[parta] || parta)); suffixParts.push(PARTA_LABEL[parta] || parta); }
+    const faze = document.getElementById('filter-faze')?.value;
+    if (faze) { labels.push('Fáze: ' + (FAZE_LABEL[faze] || faze)); suffixParts.push(FAZE_LABEL[faze] || faze); }
+    const vysledek = document.getElementById('filter-vysledek')?.value;
+    if (vysledek) { labels.push('Výsledek: ' + (VYSLEDEK_LABEL[vysledek] || vysledek)); suffixParts.push(VYSLEDEK_LABEL[vysledek] || vysledek); }
+    const riziko = document.getElementById('filter-riziko')?.value;
+    if (riziko) { labels.push('Riziko: ' + (RIZIKO_LABEL[riziko] || riziko)); suffixParts.push(RIZIKO_LABEL[riziko] || riziko); }
+    const spokojenost = document.getElementById('filter-spokojenost')?.value;
+    if (spokojenost) { labels.push('Spokojenost: ' + spokojenost + '+'); suffixParts.push('spokojenost_' + spokojenost); }
+    return {
+      label: labels.join(' · '),
+      suffix: suffixParts.length ? '_' + suffixParts.join('_').replace(/[\s/\\:*?"<>|]+/g, '_') : '',
+    };
+  }
+
+  // --- TISK ---
+  window.printTable = function() {
+    if (!filteredData || filteredData.length === 0) {
+      alert('Žádné záznamy k tisku pro zvolený měsíc.');
+      return;
+    }
+
+    const opts = { month: 'long', year: 'numeric' };
+    const monthLabel = currentDate.toLocaleDateString('cs-CZ', opts).replace(/^./, s => s.toUpperCase());
+    const { label: filterLabel } = getActiveFiltersInfo();
+    const visCols = OPTIONAL_COLS.filter(c => getVisibleCols().includes(c.key));
+    const theadRow = `<tr><th>Datum</th><th>Klient</th><th>Místo</th><th>Parta</th><th>Fáze stavby</th><th>Výsledek</th><th>Riziko</th><th>★</th>${visCols.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
+
+    const rows = filteredData.map(r => `
+      <tr>
+        <td>${r.datum ? new Date(r.datum).toLocaleDateString('cs-CZ') : '—'}</td>
+        <td><strong>${r.klient || '—'}</strong></td>
+        <td>${r.misto || '—'}</td>
+        <td>${PARTA_LABEL[r.parta] || r.parta || '—'}</td>
+        <td>${FAZE_LABEL[r.faze] || r.faze || '—'}</td>
+        <td>${VYSLEDEK_LABEL[r.vysledek] || r.vysledek || '—'}</td>
+        <td>${RIZIKO_LABEL[r.riziko] || r.riziko || '—'}</td>
+        <td>${r.spokojenost ? r.spokojenost + ' ★' : '—'}</td>
+        ${visCols.map(c => `<td>${c.render(r)}</td>`).join('')}
+      </tr>`).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Realizace – ${monthLabel}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
+    @page { size: A4 landscape; margin: 12mm 10mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Montserrat, Arial, sans-serif; font-size: 7.5px; color: #1a1a1a; background: #fff; }
+    h1 { font-size: 13px; font-weight: 700; color: #179ED9; margin-bottom: 2px; }
+    .meta { font-size: 7px; color: #888; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: #179ED9; color: #fff; }
+    thead th { padding: 4px 5px; text-align: left; font-size: 7px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+    tbody tr { border-bottom: 1px solid #e2e6ea; }
+    tbody tr:nth-child(even) { background: #f4f6f8; }
+    td { padding: 3px 5px; vertical-align: top; line-height: 1.4; }
+    td strong { font-weight: 600; }
+    .col-poznamka { font-size: 7px; color: #555; max-width: 90px; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Realizace – ${monthLabel}</h1>
+  <div class="meta">Vytištěno: ${new Date().toLocaleDateString('cs-CZ')} · Počet záznamů: ${filteredData.length}${filterLabel ? ' · Filtry: ' + filterLabel : ''}</div>
+  <table>
+    <thead>${theadRow}</thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body>
+</html>`;
+
+    const w = window.open('', '_blank', 'width=1100,height=750');
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 600);
+  };
+
+  // --- EXPORT ---
+  window.exportToExcel = function() {
+    if (!filteredData || filteredData.length === 0) {
+      alert('Žádné záznamy k exportu pro zvolený měsíc.');
+      return;
+    }
+
+    const opts = { month: 'long', year: 'numeric' };
+    const monthLabel = currentDate.toLocaleDateString('cs-CZ', opts).replace(/^./, s => s.toUpperCase());
+    const { suffix: filterSuffix } = getActiveFiltersInfo();
+
+    const visCols = OPTIONAL_COLS.filter(c => getVisibleCols().includes(c.key));
+
+    const headers = [
+      'Datum', 'Klient', 'Místo', 'Parta', 'Fáze stavby', 'Výsledek kontroly', 'Riziko', 'Spokojenost',
+      ...visCols.map(c => c.label),
+      'Zhotovitel (podpis)', 'Odběratel (podpis)',
+    ];
+
+    const rows = filteredData.map(r => [
+      r.datum ? new Date(r.datum).toLocaleDateString('cs-CZ') : '',
+      r.klient || '',
+      r.misto || '',
+      PARTA_LABEL[r.parta] || r.parta || '',
+      FAZE_LABEL[r.faze] || r.faze || '',
+      VYSLEDEK_LABEL[r.vysledek] || r.vysledek || '',
+      RIZIKO_LABEL[r.riziko] || r.riziko || '',
+      r.spokojenost ?? '',
+      ...visCols.map(c => { const v = c.render(r); return v === '—' ? '' : v; }),
+      '',
+      '',
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 22 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 12 },
+      ...visCols.map(() => ({ wch: 16 })),
+      { wch: 22 }, { wch: 22 },
+    ];
+
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Realizace');
+
+    const fileName = `realizace_${monthLabel.replace(' ', '_').toLowerCase()}${filterSuffix}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
 
   // --- INIT ---
   loadData();

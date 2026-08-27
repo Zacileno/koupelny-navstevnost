@@ -204,6 +204,10 @@
             <div class="header-meta">
                 CX Zpětná vazba
                 <span id="headerDate"></span>
+                <div class="header-user">
+                    <span id="userName"></span>
+                    <button type="button" id="logoutBtn">Odhlásit</button>
+                </div>
             </div>
         </header>
 
@@ -323,15 +327,6 @@
                     <h2>Hodnocení zákazníka</h2>
 
                     <div style="margin-bottom: 24px;">
-                        <label class="rating-question-label">Spokojenost <span>(0 = nejhorší, 10 = nejlepší)</span></label>
-                        <div class="rating-group" id="spokojenostBtns"></div>
-                        <div class="rating-labels">
-                            <span>Nespokojený</span>
-                            <span>Nadšený</span>
-                        </div>
-                    </div>
-
-                    <div style="margin-bottom: 24px;">
                         <label class="rating-question-label">Doporučení <span>(1 = nedoporučil by, 10 = určitě doporučí)</span></label>
                         <div class="rating-group" id="doporuceníBtns"></div>
                         <div class="rating-labels">
@@ -357,14 +352,6 @@
                         <textarea id="coZlepsit" placeholder="Co by zákazník zlepšil, připomínky..."></textarea>
                     </div>
 
-                    <div class="form-group">
-                        <label>Celkové hodnocení</label>
-                        <div class="score-display">
-                            <span class="score-value" id="celkoveHodnoceni">–</span>
-                            <span class="score-denom">/ 10</span>
-                            <span class="score-hint">Průměr spokojenosti<br>a doporučení</span>
-                        </div>
-                    </div>
                 </div>
 
                 <button type="submit" class="btn-primary" id="submitBtn">Uložit zpětnou vazbu</button>
@@ -376,24 +363,20 @@
     <!-- TOAST -->
     <div class="toast" id="toast"></div>
 
-    <!-- FIREBASE SDK -->
+    <!-- PŘIHLÁŠENÍ + FIREBASE -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, query, orderBy }
-            from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+        import { initFirebase, requireAuth, signOutUser } from './shared/auth-common.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
-            authDomain: "koupelny-navstevnost.firebaseapp.com",
-            projectId: "koupelny-navstevnost",
-            storageBucket: "koupelny-navstevnost.firebasestorage.app",
-            messagingSenderId: "263800017951",
-            appId: "1:263800017951:web:012c10ee687fcadab9f12a",
-            measurementId: "G-9PH80D78DP"
-        };
+        const session = await requireAuth('/login.html');
+        if (!session) throw new Error('not authenticated'); // requireAuth už přesměroval na login
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+        document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+        const { collection, addDoc, getDocs, query, orderBy } =
+            await import('https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js');
+
+        const { db } = await initFirebase();
         window.db = db;
         window.firestoreModules = { collection, addDoc, getDocs, query, orderBy };
 
@@ -445,7 +428,6 @@
         document.getElementById('datumKontaktu').valueAsDate = new Date();
 
         // Rating state
-        let spokojenost = null;
         let doporuceni  = null;
 
         // Rating color class
@@ -468,39 +450,12 @@
                     container.querySelectorAll('.rating-btn').forEach(b => b.className = 'rating-btn');
                     btn.className = `rating-btn selected ${ratingClass(i)}`;
                     onSelect(i);
-                    updateCelkove();
                 });
                 container.appendChild(btn);
             }
         }
 
-        buildRatingBtns('spokojenostBtns', 0, 10, v => { spokojenost = v; });
         buildRatingBtns('doporuceníBtns',  1, 10, v => { doporuceni  = v; });
-
-        function updateCelkove() {
-            const el = document.getElementById('celkoveHodnoceni');
-            if (spokojenost !== null && doporuceni !== null) {
-                const avg = ((spokojenost + doporuceni) / 2).toFixed(1);
-                el.textContent = avg;
-                const score = parseFloat(avg);
-                el.style.color = score <= 4 ? '#f85149' : score <= 7 ? '#d29922' : '#3fb950';
-            } else {
-                el.textContent = '–';
-                el.style.color = '';
-            }
-        }
-
-        // Dim rating section unless call is Dokončeno
-        document.getElementById('stavHovoru').addEventListener('change', function () {
-            const ratingSection = document.getElementById('ratingSection');
-            if (this.value === 'Dokončeno') {
-                ratingSection.classList.remove('dimmed');
-            } else {
-                ratingSection.classList.add('dimmed');
-            }
-        });
-        // Initial state — dimmed
-        document.getElementById('ratingSection').classList.add('dimmed');
 
         // Toast helper
         function showToast(msg, type = 'success') {
@@ -517,6 +472,13 @@
             btn.disabled = true;
             btn.textContent = 'Ukládám...';
 
+            if (document.getElementById('stavHovoru').value !== 'Dokončeno') {
+                showToast('❌ Zpětnou vazbu lze uložit pouze u dokončeného hovoru.', 'error');
+                btn.disabled = false;
+                btn.textContent = 'Uložit zpětnou vazbu';
+                return;
+            }
+
             const data = {
                 telefon:          document.getElementById('telefon').value.trim(),
                 jmeno:            document.getElementById('jmeno').value.trim(),
@@ -532,13 +494,9 @@
                 datumKontaktu:    document.getElementById('datumKontaktu').value,
                 stavHovoru:       document.getElementById('stavHovoru').value,
                 poznamkyHovoru:   document.getElementById('poznamkyHovoru').value.trim(),
-                spokojenost:      spokojenost,
                 doporuceni:       doporuceni,
                 selByZnovu:       document.getElementById('selByZnovu').value,
                 coZlepsit:        document.getElementById('coZlepsit').value.trim(),
-                celkoveHodnoceni: (spokojenost !== null && doporuceni !== null)
-                                    ? parseFloat(((spokojenost + doporuceni) / 2).toFixed(1))
-                                    : null,
                 createdAt: new Date().toISOString()
             };
 
@@ -549,13 +507,9 @@
 
                 // Reset
                 e.target.reset();
-                spokojenost = null;
                 doporuceni  = null;
                 document.querySelectorAll('.rating-btn').forEach(b => b.className = 'rating-btn');
-                document.getElementById('celkoveHodnoceni').textContent = '–';
-                document.getElementById('celkoveHodnoceni').style.color = '';
                 document.getElementById('datumKontaktu').valueAsDate = new Date();
-                document.getElementById('ratingSection').classList.add('dimmed');
             } catch (err) {
                 console.error(err);
                 showToast('❌ Chyba při ukládání: ' + err.message, 'error');

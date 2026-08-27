@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Přehled dovolených — Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../shared/shared.css">
+</head>
+<body>
+<div class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Přehled dovolených</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="userName">…</span>
+        <button class="btn-logout" id="logoutBtn">Odhlásit</button>
+    </div>
+</div>
+
+<div class="page-wrap">
+    <div id="myApprovalsLink" style="display:none; margin-top:20px;">
+        <a href="dovolena-schvaleni.html" class="module-card">
+            <div class="module-card__title">📋 Máš <span id="myApprovalsCount"></span> ke schválení</div>
+            <div class="module-card__desc">Kolize čekající na tvoje rozhodnutí</div>
+        </a>
+    </div>
+
+    <div id="collisionSection" style="display:none;">
+        <div class="section-header"><h1>⚠️ Nevyřešené kolize</h1></div>
+        <div id="collisionList"></div>
+    </div>
+
+    <div class="section-header">
+        <h1>Kalendář</h1>
+        <div class="calendar-nav">
+            <button type="button" class="calendar-nav__btn" id="calPrev">‹</button>
+            <span class="calendar-nav__label" id="calLabel"></span>
+            <button type="button" class="calendar-nav__btn" id="calNext">›</button>
+        </div>
+    </div>
+    <div class="calendar-weekdays">
+        <div class="calendar-weekdays__cell">Po</div>
+        <div class="calendar-weekdays__cell">Út</div>
+        <div class="calendar-weekdays__cell">St</div>
+        <div class="calendar-weekdays__cell">Čt</div>
+        <div class="calendar-weekdays__cell">Pá</div>
+        <div class="calendar-weekdays__cell">So</div>
+        <div class="calendar-weekdays__cell">Ne</div>
+    </div>
+    <div class="absence-calendar" id="absenceCalendar"><div class="loader"><div class="spinner"></div>Načítám…</div></div>
+
+    <div class="section-header"><h1>Nadcházející dovolené</h1></div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Jméno</th>
+                    <th>Termín</th>
+                    <th>Zástup</th>
+                    <th>Kontakt na zástup</th>
+                    <th>Stav</th>
+                </tr>
+            </thead>
+            <tbody id="upcomingTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script type="module">
+import { requireAuth, signOutUser, formatDate } from '../shared/auth-common.js';
+import {
+    listAllVacations,
+    STATUS_LABELS,
+    statusBadgeClass,
+    stripTime,
+    isSameDay,
+    formatMonthLabel,
+    buildMonthGrid,
+} from './dovolena-common.js';
+
+let vacationsData = [];
+let usersData = {};
+const today = stripTime(new Date());
+let calYear = today.getFullYear();
+let calMonth = today.getMonth();
+
+async function init() {
+    const session = await requireAuth('/login.html');
+    if (!session) return;
+
+    document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+    document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+    document.getElementById('calPrev').addEventListener('click', () => {
+        calMonth--;
+        if (calMonth < 0) { calMonth = 11; calYear--; }
+        renderCalendar();
+    });
+    document.getElementById('calNext').addEventListener('click', () => {
+        calMonth++;
+        if (calMonth > 11) { calMonth = 0; calYear++; }
+        renderCalendar();
+    });
+
+    const [vacations, users] = await Promise.all([listAllVacations(), loadUsers()]);
+    vacationsData = vacations.filter(v => v.status !== 'cancelled' && v.status !== 'rejected');
+    usersData = users;
+    render(vacations, users);
+    renderCalendar();
+    renderUpcomingTable();
+
+    const myApprovals = vacations.filter(v =>
+        v.status === 'pending_collision' &&
+        (v.managerSlug === session.slug || session.slug === 'matous-syrovy')
+    );
+    if (myApprovals.length > 0) {
+        document.getElementById('myApprovalsCount').textContent = myApprovals.length;
+        document.getElementById('myApprovalsLink').style.display = 'block';
+    }
+}
+
+async function loadUsers() {
+    const { initFirebase, CDN } = await import('../shared/auth-common.js');
+    const { db } = await initFirebase();
+    const { collection, getDocs } = await import(`${CDN}/firebase-firestore.js`);
+    const snap = await getDocs(collection(db, 'users'));
+    return Object.fromEntries(snap.docs.map(d => [d.id, d.data()]));
+}
+
+function contactLine(u) {
+    if (!u) return '';
+    return [u.phone, u.email].filter(Boolean).join(' · ');
+}
+
+function vacationCard(v, users) {
+    const person = users[v.userId];
+    const substitute = users[v.substituteUserId];
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+        <div class="section-header" style="padding:0 0 8px;">
+            <h2 style="font-size:15px;">${person?.name ?? v.userId}</h2>
+            <span class="badge ${statusBadgeClass(v.status)}">${STATUS_LABELS[v.status] ?? v.status}</span>
+        </div>
+        <div class="text-dim">${formatDate(v.startDate)} – ${formatDate(v.endDate)}</div>
+        <div class="mt-8">
+            <strong>Zástup:</strong> ${substitute?.name ?? '—'}
+            ${contactLine(substitute) ? `<div class="text-dim">${contactLine(substitute)}</div>` : ''}
+        </div>
+        ${v.note ? `<div class="text-dim mt-8">${escapeHtml(v.note)}</div>` : ''}
+    `;
+    return card;
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function render(vacations, users) {
+    const collisions = vacations.filter(v => v.status === 'pending_collision');
+
+    const collisionSection = document.getElementById('collisionSection');
+    const collisionList = document.getElementById('collisionList');
+    if (collisions.length > 0) {
+        collisionSection.style.display = 'block';
+        collisionList.innerHTML = '';
+        for (const v of collisions) collisionList.appendChild(vacationCard(v, users));
+    }
+}
+
+function renderCalendar() {
+    document.getElementById('calLabel').textContent = formatMonthLabel(calYear, calMonth);
+
+    const grid = document.getElementById('absenceCalendar');
+    grid.innerHTML = '';
+
+    for (const cell of buildMonthGrid(calYear, calMonth)) {
+        const dayEl = document.createElement('div');
+        dayEl.className = 'absence-day';
+        if (!cell.inMonth) dayEl.classList.add('absence-day--out');
+        if (isSameDay(cell.date, today)) dayEl.classList.add('absence-day--today');
+
+        const num = document.createElement('div');
+        num.className = 'absence-day__num';
+        num.textContent = cell.date.getDate();
+        dayEl.appendChild(num);
+
+        const dayVacations = vacationsData.filter(v =>
+            v.startDate.toDate() <= cell.date && v.endDate.toDate() >= cell.date
+        );
+
+        for (const v of dayVacations) {
+            const person = usersData[v.userId];
+            const substitute = usersData[v.substituteUserId];
+            const firstName = (person?.name ?? v.userId).split(' ')[0];
+            const substituteFirstName = substitute?.name?.split(' ')[0];
+
+            const pill = document.createElement('div');
+            pill.className = 'absence-pill' + (v.status === 'pending_collision' ? ' absence-pill--collision' : '');
+            pill.textContent = substituteFirstName ? `${firstName} (${substituteFirstName})` : firstName;
+            pill.title = `${person?.name ?? v.userId} (${STATUS_LABELS[v.status] ?? v.status})\nZástup: ${substitute?.name ?? '—'}`;
+            dayEl.appendChild(pill);
+        }
+
+        grid.appendChild(dayEl);
+    }
+}
+
+function renderUpcomingTable() {
+    const tbody = document.getElementById('upcomingTableBody');
+    tbody.innerHTML = '';
+
+    const upcoming = vacationsData
+        .filter(v => v.endDate.toDate() >= today)
+        .sort((a, b) => a.startDate.toMillis() - b.startDate.toMillis());
+
+    if (upcoming.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Žádné nadcházející dovolené.</td></tr>';
+        return;
+    }
+
+    for (const v of upcoming) {
+        const person = usersData[v.userId];
+        const substitute = usersData[v.substituteUserId];
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${escapeHtml(person?.name ?? v.userId)}</td>
+            <td class="text-dim">${formatDate(v.startDate)} – ${formatDate(v.endDate)}</td>
+            <td>${escapeHtml(substitute?.name ?? '—')}</td>
+            <td class="text-dim">${escapeHtml(contactLine(substitute)) || '—'}</td>
+            <td><span class="badge ${statusBadgeClass(v.status)}">${STATUS_LABELS[v.status] ?? v.status}</span></td>
+        `;
+        tbody.appendChild(row);
+    }
+}
+
+init();
+</script>
+</body>
+</html>

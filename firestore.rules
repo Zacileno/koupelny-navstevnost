@@ -2,34 +2,168 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Zpětná vazba zákazníků – čtení i zápis z webu
+    // Zpětná vazba zákazníků – vyžaduje přihlášení (public/cx.html, cx-dashboard.html)
     match /cx_feedback/{document} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // Záznamy návštěvnosti – čtení i zápis z webu
+    // Záznamy návštěvnosti – vyžaduje přihlášení (public/index.html, dashboard.html)
     match /entries/{document} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // Historická návštěvnost – pouze čtení
+    // Historická návštěvnost – jen čtení, jen přihlášeným
     match /daily_summaries/{document} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow write: if false;
     }
 
-    // Uživatelé pro výběr při zadávání zpětné vazby
-    match /users/{document} {
-      allow read: if true;
-      allow write: if false;
+    // Celofiremní adresář – čtení jen přihlášeným (obsahuje osobní telefony)
+    match /users/{slug} {
+      allow read: if isSignedIn();
+      allow create: if false;
+      allow delete: if false;
+
+      // Dočasné sdílené heslo při bootstrapu sdíleného loginu (viz docs/architektura.md):
+      // vlastník smí sám shodit mustChangePassword z true na false poté, co si heslo
+      // změní na vlastní — a nesmí u toho sáhnout na žádné jiné pole dokumentu.
+      allow update: if request.auth != null &&
+        request.auth.token.slug == slug &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword']) &&
+        request.resource.data.mustChangePassword == false;
     }
 
-    // Realizace – čtení i zápis z webu
+    // Realizace – vyžaduje přihlášení (public/realizace/realizace.html, realizace-dashboard.html)
     match /realizace/{document} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // ── MODUL ADAPTACE ──────────────────────────────────────────────────────
+
+    // Pomocné funkce
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Identita: users/{slug} dostává při bootstrapu (scripts/seed-users-auth.js
+    // nebo nově Cloud Function onboardEmployee) custom claim `slug` na Firebase
+    // Auth účtu. Null-safe (.get s výchozí hodnotou) záměrně — lidé bez claimu
+    // (zatím-nedomigrovaná Adaptace, viz níže) musí bezpečně dostat null, ne chybu.
+    function mySlug() {
+      return request.auth.token.get('slug', null);
+    }
+
+    // Přechodné období pro modul Adaptace: staří lidé (založení přes
+    // scripts/seed-adaptation.js) mají doklad na users/{uid} s polem `role` a
+    // žádný slug claim. Noví lidé (založení přes admin konzoli / onboardEmployee)
+    // mají users/{slug} s polem `platformRole` a claim `slug`. Dokud nejsou staré
+    // záznamy zpětně domigrované (samostatný, neurgentní úklid), ověřujeme obě
+    // cesty — až budou všichni na slug identitě, legacyRole()/userRole() zjednodušit.
+    function legacyRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', null);
+    }
+
+    function slugRole() {
+      return mySlug() != null
+        ? get(/databases/$(database)/documents/users/$(mySlug())).data.get('platformRole', null)
+        : null;
+    }
+
+    function userRole() {
+      return slugRole() != null ? slugRole() : legacyRole();
+    }
+
+    function hasRole(roles) {
+      return isSignedIn() && userRole() in roles;
+    }
+
+    function isHrOrAdmin() {
+      return hasRole(['hr', 'admin']);
+    }
+
+    function isSupervisorOrAbove() {
+      return hasRole(['supervisor', 'hr', 'admin']);
+    }
+
+    // Jmenovaný manažer na konkrétní adaptaci (týdenní šablona — projektový specialista) —
+    // nemusí mít globální roli 'supervisor'. Buddy/senior specialista/zástupce manažera jsou
+    // u této šablony jen informativní jména (zobrazují se u cílů), potvrzuje výhradně manažer.
+    // roles.{key} má u starých adaptací klíč `uid`, u nových (přes admin konzoli) klíč `slug`.
+    function roleEntry(data, key) {
+      return data.roles.get(key, {});
+    }
+
+    function isAssignedRole(data) {
+      return isSignedIn() && ('roles' in data) && (
+        request.auth.uid == roleEntry(data, 'manager').get('uid', null) ||
+        (mySlug() != null && mySlug() == roleEntry(data, 'manager').get('slug', null))
+      );
+    }
+
+    // Šablony adaptačních plánů
+    // Čtení: všichni přihlášení; zápis: pouze hr a admin
+    match /adaptation_templates/{templateId} {
+      allow read: if isSignedIn();
+      allow write: if isHrOrAdmin();
+    }
+
+    // Adaptace zaměstnanců
+    match /adaptations/{adaptationId} {
+      // Čtení: vlastník (uid u starých adaptací, slug u nových), supervisor,
+      // hr/admin, jmenovaný manažer adaptace
+      allow read: if isSignedIn() && (
+        resource.data.employeeId == request.auth.uid ||
+        resource.data.employeeId == mySlug() ||
+        isSupervisorOrAbove() ||
+        isAssignedRole(resource.data)
+      );
+
+      // Vytvoření nové adaptace: pouze hr/admin
+      allow create: if isHrOrAdmin();
+
+      // Aktualizace: rozlišeno podle role
+      allow update: if isSignedIn() && (
+        // Nováček může aktualizovat pouze svůj záznam (úkoly, poznámky, posun dne)
+        resource.data.employeeId == request.auth.uid ||
+        resource.data.employeeId == mySlug() ||
+        // Vedoucí a výše může potvrzovat a přesouvat termíny
+        isSupervisorOrAbove() ||
+        // Jmenovaný manažer (týdenní šablona) může potvrzovat cíle bez globální role 'supervisor'
+        isAssignedRole(resource.data)
+      );
+
+      // Smazání: pouze hr/admin
+      allow delete: if isHrOrAdmin();
+    }
+
+    // ── MODUL DOVOLENÁ / SDÍLENÝ LOGIN ──────────────────────────────────────
+    // (mySlug() je definované výše u pomocných funkcí — používá ho teď i Adaptace)
+
+    match /vacations/{vacationId} {
+      // Čtení: kdokoliv přihlášený (týmový i CEO přehled je stejná data)
+      allow read: if isSignedIn();
+
+      // Vytvoření: jen za sebe, se status buď confirmed nebo pending_collision
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == mySlug() &&
+        request.resource.data.status in ['confirmed', 'pending_collision'];
+
+      // Úprava vlastníkem: jen vlastní žádost (např. zrušení)
+      allow update: if isSignedIn() && resource.data.userId == mySlug();
+
+      // Schválení/zamítnutí kolize: přiřazený manažer (managerSlug na žádosti,
+      // denormalizovaný z users/{userId} v čase zadání) nebo CEO jako pojistka.
+      // Smí jen posunout pending_collision na confirmed/rejected, nic jiného.
+      allow update: if isSignedIn() &&
+        resource.data.status == 'pending_collision' &&
+        (mySlug() == resource.data.managerSlug || mySlug() == 'matous-syrovy') &&
+        request.resource.data.status in ['confirmed', 'rejected'] &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedBy', 'resolvedAt']);
+
+      allow delete: if false;
     }
   }
 }

@@ -67,3 +67,14 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# macOS
+.DS_Store
+
+# Claude Code local-only state (worktree checkouts, personal settings)
+.claude/worktrees/
+.claude/settings.local.json
+
+# Zákaznická data (raw exporty) — zůstávají lokálně, nejdou do historie repa
+scripts/Souhrn_zpe_tne__vazby__1_.xlsx
+scripts/Souhrn_zpetne_vazby_1.xlsx

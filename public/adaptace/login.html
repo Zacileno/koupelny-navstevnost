@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Přihlášení — Adaptace · Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="adaptace.css">
+</head>
+<body>
+<div class="login-page">
+    <div class="login-card">
+        <img src="../logo.png" alt="Koupelny Syrový" class="login-card__logo">
+        <h1 class="login-card__title">Přihlášení</h1>
+        <p class="login-card__subtitle">Interní platforma — Modul Adaptace</p>
+
+        <div class="login-error" id="loginError"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="email">E-mail</label>
+                <input type="email" id="email" placeholder="vas@email.cz" autocomplete="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Heslo</label>
+                <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn btn--primary btn--login" id="loginBtn">
+                Přihlásit se
+            </button>
+        </form>
+
+        <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:2px;">Demo ukázka</div>
+            <a href="muj-plan.html?demo=1" class="btn btn--ghost" style="justify-content:center;text-decoration:none;">
+                👤 Plán nováčka
+            </a>
+            <a href="tym.html?demo=1" class="btn btn--ghost" style="justify-content:center;text-decoration:none;">
+                👥 Pohled vedoucího
+            </a>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+import { initFirebase, getUserProfile } from './adaptace-common.js';
+
+const CDN = 'https://www.gstatic.com/firebasejs/12.9.0';
+
+const form    = document.getElementById('loginForm');
+const errorEl = document.getElementById('loginError');
+const loginBtn = document.getElementById('loginBtn');
+
+function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.classList.add('visible');
+}
+
+function hideError() {
+    errorEl.classList.remove('visible');
+}
+
+// If already logged in, redirect immediately
+(async () => {
+    const { auth } = await initFirebase();
+    auth.onAuthStateChanged(async user => {
+        if (!user) return;
+        const profile = await getUserProfile(user.uid);
+        redirect(profile?.role ?? profile?.platformRole);
+    });
+})();
+
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideError();
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Přihlašuji…';
+
+    const email    = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    try {
+        const { auth } = await initFirebase();
+        const { signInWithEmailAndPassword } = await import(`${CDN}/firebase-auth.js`);
+
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        const profile = await getUserProfile(cred.user.uid);
+        redirect(profile?.role ?? profile?.platformRole);
+    } catch (err) {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Přihlásit se';
+
+        switch (err.code) {
+            case 'auth/user-not-found':
+            case 'auth/wrong-password':
+            case 'auth/invalid-credential':
+                showError('Nesprávný e-mail nebo heslo.');
+                break;
+            case 'auth/too-many-requests':
+                showError('Příliš mnoho pokusů. Zkuste to za chvíli.');
+                break;
+            case 'auth/user-disabled':
+                showError('Účet byl deaktivován. Kontaktujte HR.');
+                break;
+            default:
+                showError('Přihlášení se nezdařilo. Zkuste to znovu.');
+                console.error(err);
+        }
+    }
+});
+
+function redirect(role) {
+    if (role === 'supervisor' || role === 'hr' || role === 'admin') {
+        window.location.href = '/adaptace/tym.html';
+    } else {
+        window.location.href = '/adaptace/muj-plan.html';
+    }
+}
+</script>
+</body>
+</html>

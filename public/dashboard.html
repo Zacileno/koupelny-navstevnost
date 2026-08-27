@@ -28,6 +28,8 @@
     <div class="header-right">
         <div class="live-dot"></div>
         <span id="headerDate">–</span>
+        <span id="userName" class="header-user-name"></span>
+        <button type="button" id="logoutBtn" class="header-logout-btn">Odhlásit</button>
     </div>
 </header>
 
@@ -58,6 +60,12 @@
                 <label>Do</label>
                 <input type="date" id="customTo">
             </div>
+        </div>
+
+        <!-- Přepínač způsobu YoY srovnání -->
+        <div class="compare-mode-tabs" id="compareModeWrap">
+            <button class="compare-mode-btn active" data-compare="full" title="Porovná celý měsíc s celým stejným měsícem loni">Celý měsíc</button>
+            <button class="compare-mode-btn" data-compare="todate" title="Porovná jen dny od začátku měsíce do dneška — u rozjetého měsíce spravedlivější než celý měsíc">Do dnešního dne</button>
         </div>
 
         <div class="yoy-badge" id="yoyBadge">↕ Porovnání se stejným měsícem loni</div>
@@ -179,21 +187,20 @@
 
 </div>
 
-<!-- FIREBASE -->
+<!-- PŘIHLÁŠENÍ + FIREBASE -->
 <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
-    import { getFirestore, collection, query, where, getDocs, orderBy, deleteDoc, updateDoc, doc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
-    const firebaseConfig = {
-        apiKey: "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
-        authDomain: "koupelny-navstevnost.firebaseapp.com",
-        projectId: "koupelny-navstevnost",
-        storageBucket: "koupelny-navstevnost.firebasestorage.app",
-        messagingSenderId: "263800017951",
-        appId: "1:263800017951:web:012c10ee687fcadab9f12a",
-        measurementId: "G-9PH80D78DP"
-    };
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+    import { initFirebase, requireAuth, signOutUser } from './shared/auth-common.js';
+
+    const session = await requireAuth('/login.html');
+    if (!session) throw new Error('not authenticated'); // requireAuth už přesměroval na login
+
+    document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+    document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+    const { db } = await initFirebase();
+    const { collection, query, where, getDocs, orderBy, deleteDoc, updateDoc, doc } =
+        await import('https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js');
+
     window.db = db;
     window.firestoreModules = { collection, query, where, getDocs, orderBy, deleteDoc, updateDoc, doc };
     console.log('✅ Firebase inicializován');

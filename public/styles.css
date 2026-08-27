@@ -80,6 +80,40 @@ header {
     letter-spacing: 0;
 }
 
+.header-user {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.header-user #userName {
+    color: var(--gray-mid);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.header-user #logoutBtn {
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--blue);
+    background: none;
+    border: 1px solid var(--gray-border);
+    border-radius: var(--radius);
+    padding: 4px 10px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.header-user #logoutBtn:hover {
+    background: var(--blue-light);
+}
+
 /* === MODRÝ PRUH === */
 .nav-bar {
     background: var(--blue);

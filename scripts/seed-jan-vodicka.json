@@ -1,0 +1,25 @@
+{
+  "employee": {
+    "name": "Jan Vodička",
+    "email": "jan.vodicka@koupelny-syrovy.cz",
+    "studioKey": [
+      "pardubice"
+    ],
+    "startDate": "2026-08-03"
+  },
+  "roles": {
+    "manager": {
+      "name": "Barbora Syrová",
+      "email": "barbora.syrova@koupelny-syrovy.cz"
+    },
+    "managerDeputy": {
+      "name": "Matouš Syrový"
+    },
+    "seniorSpecialist": {
+      "name": "Barbora Syrová"
+    },
+    "buddy": {
+      "name": "Marek Kopřiva"
+    }
+  }
+}

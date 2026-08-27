@@ -1,0 +1,14 @@
+{
+  "employee": {
+    "name": "Matouš Syrový",
+    "email": "matous.syrovy@koupelny-syrovy.cz",
+    "studioKey": ["praha"],
+    "startDate": "2026-07-13"
+  },
+  "roles": {
+    "manager":          { "name": "Barča Syrová", "email": "barca.syrova@koupelny-syrovy.cz" },
+    "managerDeputy":    { "name": "Naty" },
+    "seniorSpecialist": { "name": "Barča Syrová" },
+    "buddy":            { "name": "Naty" }
+  }
+}

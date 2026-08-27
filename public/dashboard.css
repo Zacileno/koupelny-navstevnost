@@ -122,6 +122,27 @@ body {
     font-weight: 500;
 }
 
+.header-user-name {
+    color: var(--text-dim);
+}
+
+.header-logout-btn {
+    font-family: var(--font, inherit);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px 10px;
+    cursor: pointer;
+}
+
+.header-logout-btn:hover {
+    color: var(--text);
+    border-color: var(--border2);
+}
+
 .live-dot {
     width: 7px; height: 7px;
     background: var(--success);
@@ -747,6 +768,37 @@ select option { background: #1a1e27; }
     background: var(--brand-blue);
     color: #fff;
 }
+
+/* === PŘEPÍNAČ CELÝ MĚSÍC / DO DNEŠNÍHO DNE === */
+.compare-mode-tabs {
+    display: flex;
+    gap: 3px;
+    background: var(--surface3);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+    flex-shrink: 0;
+}
+.compare-mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'Montserrat', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.compare-mode-btn:hover { color: var(--text); }
+.compare-mode-btn.active {
+    background: var(--brand-gold, var(--brand-blue));
+    color: #fff;
+}
+.compare-mode-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.compare-mode-btn:disabled:hover { color: var(--muted); }
 
 /* === CUSTOM DATE RANGE === */
 .custom-range {

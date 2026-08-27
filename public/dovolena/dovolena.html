@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dovolená — Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../shared/shared.css">
+</head>
+<body>
+<div class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Dovolená</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="userName">…</span>
+        <button class="btn-logout" id="logoutBtn">Odhlásit</button>
+    </div>
+</div>
+
+<div class="page-wrap page-wrap--narrow">
+    <div class="section-header">
+        <h1>Nová žádost o dovolenou</h1>
+    </div>
+
+    <div class="card">
+        <form id="requestForm">
+            <div class="form-group">
+                <label>Termín</label>
+                <button type="button" class="date-range-trigger date-range-trigger--placeholder" id="dateRangeTrigger">
+                    Vyberte termín…
+                </button>
+                <div class="calendar-panel" id="calendarPanel" style="display:none;">
+                    <div class="calendar-nav">
+                        <button type="button" class="calendar-nav__btn" id="calPrev">‹</button>
+                        <span class="calendar-nav__label" id="calLabel"></span>
+                        <button type="button" class="calendar-nav__btn" id="calNext">›</button>
+                    </div>
+                    <div class="calendar-weekdays">
+                        <div class="calendar-weekdays__cell">Po</div>
+                        <div class="calendar-weekdays__cell">Út</div>
+                        <div class="calendar-weekdays__cell">St</div>
+                        <div class="calendar-weekdays__cell">Čt</div>
+                        <div class="calendar-weekdays__cell">Pá</div>
+                        <div class="calendar-weekdays__cell">So</div>
+                        <div class="calendar-weekdays__cell">Ne</div>
+                    </div>
+                    <div class="calendar-grid" id="calGrid"></div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="substitute">Zástup</label>
+                <select id="substitute" required>
+                    <option value="" disabled selected>Vyberte zástupce…</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="note">Poznámka (nepovinné)</label>
+                <textarea id="note" placeholder="Cokoliv, co by měl zástup nebo tým vědět…"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn--primary btn--login" id="submitBtn">
+                Odeslat žádost
+            </button>
+        </form>
+    </div>
+
+    <div class="section-header">
+        <h2>Moje dovolené</h2>
+    </div>
+
+    <div id="myList">
+        <div class="loader"><div class="spinner"></div>Načítám…</div>
+    </div>
+</div>
+
+<script type="module">
+import { requireAuth, signOutUser, formatDate, formatDateShort, showToast } from '../shared/auth-common.js';
+import {
+    listSubstituteCandidates,
+    createVacationRequest,
+    listMyVacations,
+    cancelVacation,
+    STATUS_LABELS,
+    statusBadgeClass,
+    stripTime,
+    isSameDay,
+    formatMonthLabel,
+    buildMonthGrid,
+} from './dovolena-common.js';
+
+let session = null;
+
+async function init() {
+    session = await requireAuth('/login.html');
+    if (!session) return;
+
+    document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+    document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+    initDateRangePicker();
+    await loadSubstitutes();
+    await loadMyVacations();
+}
+
+// === TERMÍN (kalendářový range-picker) ===
+
+const today = stripTime(new Date());
+let calYear = today.getFullYear();
+let calMonth = today.getMonth();
+let rangeStart = null;
+let rangeEnd = null;
+
+const trigger = document.getElementById('dateRangeTrigger');
+const panel = document.getElementById('calendarPanel');
+
+function initDateRangePicker() {
+    trigger.addEventListener('click', () => {
+        const opening = panel.style.display === 'none';
+        panel.style.display = opening ? 'block' : 'none';
+        trigger.classList.toggle('date-range-trigger--open', opening);
+        if (opening) renderCalendar();
+    });
+
+    document.getElementById('calPrev').addEventListener('click', () => {
+        calMonth--;
+        if (calMonth < 0) { calMonth = 11; calYear--; }
+        renderCalendar();
+    });
+    document.getElementById('calNext').addEventListener('click', () => {
+        calMonth++;
+        if (calMonth > 11) { calMonth = 0; calYear++; }
+        renderCalendar();
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!panel.contains(e.target) && e.target !== trigger) {
+            panel.style.display = 'none';
+            trigger.classList.remove('date-range-trigger--open');
+        }
+    });
+}
+
+function renderCalendar() {
+    document.getElementById('calLabel').textContent = formatMonthLabel(calYear, calMonth);
+
+    const grid = document.getElementById('calGrid');
+    grid.innerHTML = '';
+
+    for (const cell of buildMonthGrid(calYear, calMonth)) {
+        const el = document.createElement('div');
+        el.className = 'calendar-day';
+        el.textContent = cell.date.getDate();
+
+        const disabled = cell.date < today;
+        if (!cell.inMonth) el.classList.add('calendar-day--out');
+        if (isSameDay(cell.date, today)) el.classList.add('calendar-day--today');
+        if (disabled) el.classList.add('calendar-day--disabled');
+
+        if (rangeStart && isSameDay(cell.date, rangeStart)) el.classList.add('calendar-day--range-start');
+        if (rangeEnd && isSameDay(cell.date, rangeEnd)) el.classList.add('calendar-day--range-end');
+        if (rangeStart && rangeEnd && cell.date > rangeStart && cell.date < rangeEnd) el.classList.add('calendar-day--in-range');
+
+        if (!disabled) {
+            el.addEventListener('click', () => onDayClick(cell.date));
+        }
+        grid.appendChild(el);
+    }
+}
+
+function onDayClick(date) {
+    if (!rangeStart || (rangeStart && rangeEnd)) {
+        rangeStart = date;
+        rangeEnd = null;
+    } else if (date < rangeStart) {
+        rangeStart = date;
+    } else {
+        rangeEnd = date;
+    }
+    updateTriggerLabel();
+    renderCalendar();
+
+    if (rangeStart && rangeEnd) {
+        panel.style.display = 'none';
+        trigger.classList.remove('date-range-trigger--open');
+    }
+}
+
+function updateTriggerLabel() {
+    if (rangeStart && rangeEnd) {
+        trigger.textContent = `${formatDateShort(rangeStart)} – ${formatDateShort(rangeEnd)}`;
+        trigger.classList.remove('date-range-trigger--placeholder');
+    } else if (rangeStart) {
+        trigger.textContent = `${formatDateShort(rangeStart)} – vyberte konec…`;
+        trigger.classList.remove('date-range-trigger--placeholder');
+    } else {
+        trigger.textContent = 'Vyberte termín…';
+        trigger.classList.add('date-range-trigger--placeholder');
+    }
+}
+
+function resetDateRangePicker() {
+    rangeStart = null;
+    rangeEnd = null;
+    calYear = today.getFullYear();
+    calMonth = today.getMonth();
+    updateTriggerLabel();
+}
+
+async function loadSubstitutes() {
+    const select = document.getElementById('substitute');
+    const candidates = await listSubstituteCandidates(session.slug);
+    for (const c of candidates) {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.name;
+        select.appendChild(opt);
+    }
+}
+
+async function loadMyVacations() {
+    const listEl = document.getElementById('myList');
+    const vacations = await listMyVacations(session.slug);
+
+    if (vacations.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">Zatím žádná dovolená.</div>';
+        return;
+    }
+
+    const candidates = await listSubstituteCandidates(session.slug);
+    const nameById = Object.fromEntries(candidates.map(c => [c.id, c.name]));
+
+    listEl.innerHTML = '';
+    for (const v of vacations) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+            <div class="section-header" style="padding:0 0 8px;">
+                <h2 style="font-size:14px;">${formatDate(v.startDate)} – ${formatDate(v.endDate)}</h2>
+                <span class="badge ${statusBadgeClass(v.status)}">${STATUS_LABELS[v.status] ?? v.status}</span>
+            </div>
+            <div class="text-dim">Zástup: ${nameById[v.substituteUserId] ?? '—'}</div>
+            ${v.note ? `<div class="text-dim mt-8">${escapeHtml(v.note)}</div>` : ''}
+        `;
+
+        if (v.status !== 'cancelled' && v.status !== 'rejected') {
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'btn btn--danger btn--sm mt-12';
+            cancelBtn.textContent = 'Zrušit';
+            cancelBtn.addEventListener('click', async () => {
+                cancelBtn.disabled = true;
+                await cancelVacation(v.id);
+                showToast('Dovolená zrušena');
+                await loadMyVacations();
+            });
+            card.appendChild(cancelBtn);
+        }
+
+        listEl.appendChild(card);
+    }
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+document.getElementById('requestForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Odesílám…';
+
+    try {
+        if (!rangeStart || !rangeEnd) {
+            showToast('Vyberte prosím termín od–do');
+            return;
+        }
+
+        const substituteUserId = document.getElementById('substitute').value;
+        const note = document.getElementById('note').value.trim();
+
+        const result = await createVacationRequest({
+            userId: session.slug,
+            department: session.profile?.department ?? null,
+            studios: session.profile?.studios ?? [],
+            managerSlug: session.profile?.managerSlug ?? null,
+            startDate: rangeStart,
+            endDate: rangeEnd,
+            substituteUserId,
+            note,
+        });
+
+        if (result.status === 'pending_collision') {
+            showToast('Žádost odeslána — koliduje s jinou dovolenou z oddělení, čeká na vyřešení');
+        } else {
+            showToast('Žádost odeslána a potvrzena', 'success');
+        }
+
+        e.target.reset();
+        resetDateRangePicker();
+        await loadMyVacations();
+    } catch (err) {
+        console.error(err);
+        showToast('Odeslání se nezdařilo, zkuste to znovu');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Odeslat žádost';
+    }
+});
+
+init();
+</script>
+</body>
+</html>

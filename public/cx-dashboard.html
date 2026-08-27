@@ -8,6 +8,11 @@
     <title>CX Dashboard – Koupelny Syrový</title>
     <link rel="stylesheet" href="styles.css">
     <style>
+        /* ─── Container override (dashboard potřebuje více šířky než formuláře) ─── */
+        .container {
+            max-width: min(95vw, 1400px);
+        }
+
         /* ─── Dashboard grid ─── */
         .dash-grid {
             display: grid;
@@ -30,53 +35,76 @@
 
         /* ─── KPI karta ─── */
         .kpi-card {
-            background: var(--gray-light);
+            background: var(--white);
             border: 1px solid var(--gray-border);
+            border-top: 3px solid var(--gray-border);
             border-radius: var(--radius-lg);
-            padding: 20px 22px;
+            padding: 22px 24px 20px;
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 6px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
+            transition: box-shadow .2s;
         }
+        .kpi-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.09); }
         .kpi-label {
             font-size: 10px;
             font-weight: 700;
-            letter-spacing: .1em;
+            letter-spacing: .12em;
             text-transform: uppercase;
             color: var(--gray-mid);
         }
         .kpi-value {
-            font-size: 36px;
+            font-size: 38px;
             font-weight: 300;
             color: var(--blue);
-            line-height: 1.1;
+            line-height: 1.05;
+            letter-spacing: -.02em;
         }
         .kpi-sub {
             font-size: 11px;
             color: var(--gray-mid);
             font-weight: 500;
+            margin-top: 2px;
         }
+        .kpi-card.green { border-top-color: #3fb950; }
+        .kpi-card.red   { border-top-color: #f85149; }
+        .kpi-card.gold  { border-top-color: #d29922; }
+        .kpi-card.blue  { border-top-color: var(--blue); }
         .kpi-card.green .kpi-value { color: #3fb950; }
         .kpi-card.red   .kpi-value { color: #f85149; }
         .kpi-card.gold  .kpi-value { color: #d29922; }
 
-        /* ─── Section block (stejné jako cx.html) ─── */
+        /* ─── Section block ─── */
         .section-block {
-            background: var(--gray-light);
+            background: var(--white);
             border: 1px solid var(--gray-border);
             border-radius: var(--radius-lg);
-            padding: 24px;
+            padding: 24px 26px;
             margin-bottom: 20px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
         }
         .section-block h2 {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: .12em;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .14em;
             text-transform: uppercase;
             color: var(--blue);
-            margin-bottom: 18px;
-            padding-bottom: 10px;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
             border-bottom: 1px solid var(--gray-border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-block h2::before {
+            content: '';
+            display: inline-block;
+            width: 3px;
+            height: 14px;
+            background: var(--blue);
+            border-radius: 2px;
+            flex-shrink: 0;
         }
 
         /* ─── Filtry ─── */
@@ -112,23 +140,24 @@
         }
 
         /* ─── Bar chart ─── */
-        .bar-chart { display: flex; flex-direction: column; gap: 10px; }
+        .bar-chart { display: flex; flex-direction: column; gap: 12px; }
         .bar-row {
             display: grid;
-            grid-template-columns: 120px 1fr 48px;
+            grid-template-columns: 130px 1fr 52px;
             align-items: center;
             gap: 10px;
         }
         .bar-label {
-            font-size: 12px;
-            font-weight: 600;
+            font-size: 11px;
+            font-weight: 700;
             color: var(--black);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            letter-spacing: .01em;
         }
         .bar-track {
-            height: 10px;
+            height: 12px;
             background: var(--gray-border);
             border-radius: 99px;
             overflow: hidden;
@@ -138,23 +167,37 @@
             border-radius: 99px;
             background: var(--blue);
             transition: width .6s cubic-bezier(.4,0,.2,1);
+            opacity: .85;
         }
         .bar-fill.green { background: #3fb950; }
         .bar-fill.gold  { background: #d29922; }
         .bar-val {
             font-size: 12px;
-            font-weight: 700;
-            color: var(--gray-mid);
+            font-weight: 800;
+            color: var(--gray-dark);
             text-align: right;
         }
 
         /* ─── Tabulka posledních záznamů ─── */
-        .cx-table-wrap { overflow-x: auto; }
+        .cx-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .cx-table {
             width: 100%;
+            min-width: 700px;
             border-collapse: collapse;
             font-size: 12px;
+            table-layout: fixed;
         }
+        /* Šířky sloupců: Datum Jméno Středisko Obchodník Služba StavHovoru Spok. Dopor. Znovu Pozn. */
+        .cx-table colgroup col:nth-child(1)  { width: 8%; }
+        .cx-table colgroup col:nth-child(2)  { width: 12%; }
+        .cx-table colgroup col:nth-child(3)  { width: 9%; }
+        .cx-table colgroup col:nth-child(4)  { width: 12%; }
+        .cx-table colgroup col:nth-child(5)  { width: 8%; }
+        .cx-table colgroup col:nth-child(6)  { width: 14%; }
+        .cx-table colgroup col:nth-child(7)  { width: 6%; }
+        .cx-table colgroup col:nth-child(8)  { width: 6%; }
+        .cx-table colgroup col:nth-child(9)  { width: 8%; }
+        .cx-table colgroup col:nth-child(10) { width: auto; }
         .cx-table th {
             text-align: left;
             font-size: 10px;
@@ -162,17 +205,18 @@
             letter-spacing: .08em;
             text-transform: uppercase;
             color: var(--gray-mid);
-            padding: 0 12px 10px 0;
+            padding: 0 8px 10px 0;
             border-bottom: 1px solid var(--gray-border);
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .cx-table td {
-            padding: 10px 12px 10px 0;
+            padding: 10px 8px 10px 0;
             border-bottom: 1px solid var(--gray-border);
             vertical-align: top;
             color: var(--black);
             font-weight: 500;
-            max-width: 200px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -265,15 +309,28 @@
 
         /* ─── Dark mode ─── */
         @media (prefers-color-scheme: dark) {
-            .kpi-card, .section-block {
+            .kpi-card {
                 background: #161b22;
                 border-color: #30363d;
+                box-shadow: 0 1px 6px rgba(0,0,0,.3);
+            }
+            .kpi-card.green { border-top-color: #3fb950; }
+            .kpi-card.red   { border-top-color: #f85149; }
+            .kpi-card.gold  { border-top-color: #d29922; }
+            .kpi-card.blue  { border-top-color: #179ed9; }
+            .section-block {
+                background: #161b22;
+                border-color: #30363d;
+                box-shadow: 0 1px 6px rgba(0,0,0,.3);
             }
             .section-block h2 { color: #C5A66B; border-bottom-color: #30363d; }
+            .section-block h2::before { background: #C5A66B; }
             .bar-track         { background: #30363d; }
+            .bar-label         { color: #e6edf3; }
+            .bar-val           { color: #c9d1d9; }
             .cx-table th       { color: #8b949e; border-bottom-color: #30363d; }
             .cx-table td       { color: #e6edf3; border-bottom-color: #30363d; }
-            .cx-table tr:hover td { background: #161b22; }
+            .cx-table tr:hover td { background: #0d1117; }
             .filters select, .filters input {
                 background: #21262d;
                 border-color: #30363d;
@@ -321,6 +378,10 @@
         <div class="header-meta">
             CX Dashboard
             <span id="headerDate"></span>
+            <div class="header-user">
+                <span id="userName"></span>
+                <button type="button" id="logoutBtn">Odhlásit</button>
+            </div>
         </div>
     </header>
     <div class="nav-bar" style="display:flex; align-items:center; gap:0; padding:0 40px;">
@@ -364,6 +425,9 @@
                     <option>Nemá zájem</option>
                     <option>Domluven termín</option>
                 </select>
+                <select id="filterObchodnik">
+                    <option value="">Všichni obchodníci</option>
+                </select>
             </div>
         </div>
 
@@ -375,7 +439,7 @@
         <!-- GRAFY: NPS + Stavy hovorů -->
         <div class="dash-grid-2">
             <div class="section-block">
-                <h2>Průměrné skóre dle střediska</h2>
+                <h2>Průměrné doporučení dle střediska</h2>
                 <div class="bar-chart" id="chartStredisko">
                     <div class="loading">Načítám…</div>
                 </div>
@@ -400,7 +464,7 @@
                 </div>
             </div>
             <div class="section-block">
-                <h2>Skóre dle obchodníka</h2>
+                <h2>Průměrné doporučení dle obchodníka</h2>
                 <div class="bar-chart" id="chartObchodnik">
                     <div class="loading">Načítám…</div>
                 </div>
@@ -418,6 +482,10 @@
             <h2>Poslední záznamy <span id="tableCount" style="font-weight:500;opacity:.6"></span></h2>
             <div class="cx-table-wrap">
                 <table class="cx-table" id="cxTable">
+                    <colgroup>
+                        <col><col><col><col><col>
+                        <col><col><col><col><col>
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Datum</th>
@@ -442,23 +510,20 @@
     </main>
 </div>
 
-<!-- FIREBASE SDK -->
+<!-- PŘIHLÁŠENÍ + FIREBASE -->
 <script type="module">
-import { initializeApp }  from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
-import { getFirestore, collection, getDocs, query, orderBy, limit, where }
-    from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import { initFirebase, requireAuth, signOutUser } from './shared/auth-common.js';
 
-const firebaseConfig = {
-    apiKey:            "AIzaSyDt0TY8ti1vAdSGp64IKneaLXjJLb2_qNw",
-    authDomain:        "koupelny-navstevnost.firebaseapp.com",
-    projectId:         "koupelny-navstevnost",
-    storageBucket:     "koupelny-navstevnost.firebasestorage.app",
-    messagingSenderId: "263800017951",
-    appId:             "1:263800017951:web:012c10ee687fcadab9f12a",
-};
+const session = await requireAuth('/login.html');
+if (!session) throw new Error('not authenticated'); // requireAuth už přesměroval na login
 
-const app = initializeApp(firebaseConfig);
-const db  = getFirestore(app);
+document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+const { collection, getDocs, query, orderBy, limit, where } =
+    await import('https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js');
+
+const { db } = await initFirebase();
 
 // ── Helpers ──────────────────────────────────
 
@@ -502,15 +567,20 @@ async function loadAll() {
 // ── Filtry ───────────────────────────────────
 
 function applyFilters(data) {
-    const stredisko = document.getElementById('filterStredisko').value;
-    const sluzba    = document.getElementById('filterSluzba').value;
-    const obdobi    = parseInt(document.getElementById('filterObdobi').value);
-    const stavHov   = document.getElementById('filterStavHovoru').value;
+    const stredisko  = document.getElementById('filterStredisko').value;
+    const sluzba     = document.getElementById('filterSluzba').value;
+    const obdobi     = parseInt(document.getElementById('filterObdobi').value);
+    const stavHov    = document.getElementById('filterStavHovoru').value;
+    const obchodnik  = document.getElementById('filterObchodnik').value;
 
     return data.filter(r => {
         if (stredisko && r.stredisko !== stredisko) return false;
-        if (sluzba    && r.sluzba    !== sluzba)    return false;
+        if (sluzba    && (r.sluzba || '').toLowerCase() !== sluzba.toLowerCase()) return false;
         if (stavHov   && r.stavHovoru !== stavHov)  return false;
+        if (obchodnik) {
+            const rOb = r.obchodnik || 'Neznámý';
+            if (rOb !== obchodnik) return false;
+        }
         if (obdobi > 0) {
             const d = r.datumKontaktu || r.createdAt || '';
             if (!d) return false;
@@ -527,37 +597,49 @@ function applyFilters(data) {
 // ── Render KPI ───────────────────────────────
 
 function renderKPI(data) {
-    const dokonceno = data.filter(r => r.stavHovoru === 'Dokončeno');
-    const scores    = dokonceno.map(r => r.celkoveHodnoceni).filter(v => v !== null && v !== undefined);
-    const avg       = scores.length ? (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1) : '—';
-    const answered   = dokonceno.filter(r => r.doporuceni !== null && r.doporuceni !== undefined && r.doporuceni !== '' && r.doporuceni !== '—' && !isNaN(Number(r.doporuceni)));
-    const promoters  = answered.filter(r => Number(r.doporuceni) >= 9).length;
-    const detractors = answered.filter(r => Number(r.doporuceni) <= 6).length;
-    const nps        = answered.length ? Math.round(((promoters - detractors) / answered.length) * 100) : '—';
+    const total = data.length;
+    const done = data.filter(d => d.stavHovoru === 'Dokončeno').length;
 
-    const znovuBase  = dokonceno.filter(r => r.selByZnovu && r.selByZnovu !== '' && r.selByZnovu !== '—').length;
-    const znovu      = dokonceno.filter(r => r.selByZnovu === 'Ano' || r.selByZnovu === 'Spíše ano').length;
-    const znouPct    = znovuBase ? Math.round((znovu / znovuBase) * 100) : '—';
+    // Průměr doporučení (pouze záznamy kde doporuceni je číslo 1–10)
+    const withRec = data.filter(d => typeof d.doporuceni === 'number' && d.doporuceni >= 1 && d.doporuceni <= 10);
+    const avgRec = withRec.length > 0
+        ? (withRec.reduce((s, d) => s + d.doporuceni, 0) / withRec.length).toFixed(1)
+        : null;
+
+    // NPS
+    const promoters = withRec.filter(d => d.doporuceni >= 9).length;
+    const detractors = withRec.filter(d => d.doporuceni <= 6).length;
+    const nps = withRec.length > 0 ? Math.round(((promoters - detractors) / withRec.length) * 100) : null;
+
+    // Šel by znovu
+    const znovu = data.filter(d => d.selByZnovu);
+    const znovuAno = znovu.filter(d => {
+        const v = (d.selByZnovu || '').toLowerCase();
+        return v.includes('ano') || v.includes('spíše ano');
+    }).length;
+    const znovuPct = znovu.length > 0 ? Math.round((znovuAno / znovu.length) * 100) : null;
+
     document.getElementById('kpiGrid').innerHTML = `
-        <div class="kpi-card">
-            <div class="kpi-label">Celkem záznamů</div>
-            <div class="kpi-value">${data.length}</div>
-            <div class="kpi-sub">${dokonceno.length} dokončených hovorů</div>
+        <div class="kpi-card blue">
+            <div class="kpi-label">CELKEM ZÁZNAMŮ</div>
+            <div class="kpi-value">${total}</div>
+            <div class="kpi-sub">${done} dokončených hovorů</div>
         </div>
-        <div class="kpi-card ${parseFloat(avg) >= 8 ? 'green' : parseFloat(avg) >= 5 ? 'gold' : 'red'}">
-            <div class="kpi-label">Průměrné skóre</div>
-            <div class="kpi-value">${avg}</div>
-            <div class="kpi-sub">z 10 (spok. + doporučení)</div>
+        <div class="kpi-card red">
+            <div class="kpi-label">PRŮMĚR DOPORUČENÍ</div>
+            <div class="kpi-value">${avgRec !== null ? avgRec : '—'}</div>
+            <div class="kpi-sub">z 10 · ${withRec.length} odpovědí</div>
         </div>
-        <div class="kpi-card ${nps >= 50 ? 'green' : nps >= 0 ? 'gold' : 'red'}">
-            <div class="kpi-label">NPS skóre</div>
-            <div class="kpi-value">${nps}</div>
+        <div class="kpi-card green">
+            <div class="kpi-label">NPS SKÓRE</div>
+            <div class="kpi-value">${nps !== null ? nps : '—'}</div>
             <div class="kpi-sub">${promoters} promotérů / ${detractors} kritiků</div>
         </div>
-        <div class="kpi-card ${znouPct >= 80 ? 'green' : znouPct >= 60 ? 'gold' : 'red'}">
-            <div class="kpi-label">Šel by znovu</div>
-            <div class="kpi-value">${znouPct}%</div>
-<div class="kpi-sub">${znovu} z ${znovuBase} dotázaných</div>        </div>
+        <div class="kpi-card gold">
+            <div class="kpi-label">ŠEL BY ZNOVU</div>
+            <div class="kpi-value">${znovuPct !== null ? znovuPct + '%' : '—'}</div>
+            <div class="kpi-sub">${znovuAno} z ${znovu.length} dotázaných</div>
+        </div>
     `;
 }
 
@@ -653,7 +735,7 @@ function renderTable(data) {
             <td>${fmtDate(r.datumKontaktu || r.createdAt)}</td>
             <td title="${r.jmeno||''}">${r.jmeno || '—'}</td>
             <td>${r.stredisko || '—'}</td>
-            <td title="${r.obchodnik||''}">${r.obchodnik || '—'}</td>
+            <td title="${r.obchodnik||'Neznámý'}">${r.obchodnik || 'Neznámý'}</td>
             <td>${r.sluzba || '—'}</td>
             <td>${stavBadge(r.stavHovoru)}</td>
             <td><span class="score-chip ${scoreClass(r.spokojenost)}">${r.spokojenost ?? '—'}</span></td>
@@ -676,14 +758,20 @@ function render() {
     renderDonut(data);
     renderTable(data);
 
-    // Skóre dle střediska
-    const strediska = ['Praha','Pardubice','Hradec','Brno','Eshop'];
-    const stredItems = strediska.map(s => {
-        const rows = dokonceno.filter(r => r.stredisko === s && r.celkoveHodnoceni !== null && r.celkoveHodnoceni !== undefined);
-        const avg  = rows.length ? (rows.reduce((a,b) => a + b.celkoveHodnoceni, 0) / rows.length).toFixed(1) : null;
-        return { label: s, value: avg ?? '—', count: rows.length, colorClass: avg >= 8 ? 'green' : avg >= 5 ? 'gold' : '' };
-    }).filter(x => x.count > 0);
-    renderBarChart('chartStredisko', stredItems, 10);
+    // Průměrné doporučení dle střediska
+    const strediska = ['Praha', 'Brno', 'Hradec', 'Pardubice'];
+    const strediskaData = strediska.map(s => {
+        const items = data.filter(d =>
+            (d.stredisko || '').toLowerCase() === s.toLowerCase() &&
+            typeof d.doporuceni === 'number' && d.doporuceni >= 1 && d.doporuceni <= 10
+        );
+        return {
+            label: s,
+            value: items.length > 0 ? +(items.reduce((a, b) => a + b.doporuceni, 0) / items.length).toFixed(1) : null,
+            count: items.length
+        };
+    }).filter(d => d.value !== null);
+    renderBarChart('chartStredisko', strediskaData, 10);
 
     // Šel by znovu
     const znovuOrder = ['Ano','Spíše ano','Nevím','Spíše ne','Ne'];
@@ -694,28 +782,29 @@ function render() {
     const znMax = Math.max(...znovuItems.map(x => x.value));
     renderBarChart('chartZnovu', znovuItems, znMax);
 
-    // Obchodníci – top 8
-    const obchMap = {};
-    dokonceno.forEach(r => {
-        if (!r.obchodnik) return;
-        if (!obchMap[r.obchodnik]) obchMap[r.obchodnik] = { sum:0, cnt:0 };
-        if (r.celkoveHodnoceni !== null && r.celkoveHodnoceni !== undefined) {
-            obchMap[r.obchodnik].sum += r.celkoveHodnoceni;
-            obchMap[r.obchodnik].cnt++;
-        }
-    });
-    const obchItems = Object.entries(obchMap)
-        .filter(([,v]) => v.cnt >= 2)
-        .map(([name,v]) => ({ label: name, value: (v.sum/v.cnt).toFixed(1), count: v.cnt, colorClass: v.sum/v.cnt >= 8 ? 'green' : v.sum/v.cnt >= 5 ? 'gold' : '' }))
-        .sort((a,b) => parseFloat(b.value) - parseFloat(a.value))
-        .slice(0,8);
-    renderBarChart('chartObchodnik', obchItems, 10);
+    // Průměrné doporučení dle obchodníka
+    const obchodnici = [...new Set(data.map(d => d.obchodnik).filter(Boolean))].sort();
+    const obchodnikData = obchodnici.map(o => {
+        const items = data.filter(d =>
+            d.obchodnik === o &&
+            typeof d.doporuceni === 'number' && d.doporuceni >= 1 && d.doporuceni <= 10
+        );
+        return {
+            label: o,
+            value: items.length > 0 ? +(items.reduce((a, b) => a + b.doporuceni, 0) / items.length).toFixed(1) : null,
+            count: items.length
+        };
+    }).filter(d => d.value !== null);
+    renderBarChart('chartObchodnik', obchodnikData, 10);
 
-    // Služba
-    const sluzbyItems = ['zboží','realizace'].map(s => {
-        const rows = dokonceno.filter(r => r.sluzba === s && r.celkoveHodnoceni !== null && r.celkoveHodnoceni !== undefined);
-        const avg  = rows.length ? (rows.reduce((a,b) => a+b.celkoveHodnoceni,0)/rows.length).toFixed(1) : null;
-        return { label: s.charAt(0).toUpperCase()+s.slice(1), value: avg ?? '—', count: rows.length, colorClass: avg >= 8 ? 'green' : 'gold' };
+    // Průměrné doporučení dle služby
+    const sluzbyItems = ['Zboží','Realizace'].map(s => {
+        const items = data.filter(r =>
+            (r.sluzba||'').toLowerCase() === s.toLowerCase() &&
+            typeof r.doporuceni === 'number' && r.doporuceni >= 1 && r.doporuceni <= 10
+        );
+        const avg = items.length > 0 ? +(items.reduce((a, b) => a + b.doporuceni, 0) / items.length).toFixed(1) : null;
+        return { label: s, value: avg ?? '—', count: items.length, colorClass: avg >= 8 ? 'green' : 'gold' };
     }).filter(x => x.count > 0);
     renderBarChart('chartSluzba', sluzbyItems, 10);
 }
@@ -724,8 +813,23 @@ function render() {
 
 async function init() {
     allData = await loadAll();
+
+    // Naplnit filtr obchodníků z reálných dat
+    const obchodnici = [...new Set(allData.map(r => r.obchodnik || 'Neznámý'))].sort((a,b) => {
+        if (a === 'Neznámý') return 1;
+        if (b === 'Neznámý') return -1;
+        return a.localeCompare(b, 'cs');
+    });
+    const sel = document.getElementById('filterObchodnik');
+    obchodnici.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+    });
+
     render();
-    ['filterStredisko','filterSluzba','filterObdobi','filterStavHovoru'].forEach(id => {
+    ['filterStredisko','filterSluzba','filterObdobi','filterStavHovoru','filterObchodnik'].forEach(id => {
         document.getElementById(id).addEventListener('change', render);
     });
 }

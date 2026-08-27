@@ -1,0 +1,18 @@
+{
+  "employee": {
+    "name": "Kateřina Kounovská",
+    "email": "katerina.kounovska@koupelny-syrovy.cz",
+    "studioKey": ["praha"],
+    "startDate": "2026-07-13"
+  },
+  "roles": {
+    "manager":          { "name": "Jakub Krčmarik", "email": "jakub.krcmarik@koupelny-syrovy.cz" },
+    "managerDeputy":    { "name": "Matouš Syrový" },
+    "seniorSpecialist": { "name": "Jakub Krčmarik" },
+    "buddy":            { "name": "TBD" }
+  },
+  "admins": [
+    { "name": "Jakub Krčmarik", "email": "jakub.krcmarik@koupelny-syrovy.cz" },
+    { "name": "Jan Lagron",     "email": "jan.lagron@koupelny-syrovy.cz" }
+  ]
+}

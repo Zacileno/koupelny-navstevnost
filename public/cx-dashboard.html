@@ -108,36 +108,66 @@
         }
 
         /* ─── Filtry ─── */
-        .filters {
+        .filter-bar {
             display: flex;
-            gap: 10px;
+            align-items: flex-end;
+            gap: 18px;
             flex-wrap: wrap;
-            margin-bottom: 20px;
-            align-items: center;
         }
-        .filters select, .filters input {
-            padding: 8px 12px;
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .filter-group label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: var(--gray-mid);
+            white-space: nowrap;
+        }
+        .filter-group select {
+            appearance: none;
+            -webkit-appearance: none;
+            min-width: 148px;
+            padding: 9px 30px 9px 12px;
             border: 1px solid var(--gray-border);
             border-radius: var(--radius);
             font-size: 13px;
             font-family: var(--font);
-            font-weight: 500;
+            font-weight: 600;
             color: var(--black);
-            background: var(--white);
+            background-color: var(--gray-light);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 11px center;
             outline: none;
             cursor: pointer;
+            transition: border-color .15s, color .15s, background-color .15s;
         }
-        .filters select:focus, .filters input:focus {
+        .filter-group select:hover { border-color: var(--blue); }
+        .filter-group select:focus { border-color: var(--blue); }
+        .filter-group select.f-active {
             border-color: var(--blue);
+            color: var(--blue);
+            background-color: var(--blue-light);
         }
-        .filter-label {
-            font-size: 11px;
+        .btn-reset-filters {
+            padding: 9px 16px;
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius);
+            background: none;
+            font-size: 12px;
             font-weight: 700;
+            letter-spacing: .02em;
             color: var(--gray-mid);
-            text-transform: uppercase;
-            letter-spacing: .08em;
+            cursor: pointer;
             white-space: nowrap;
+            transition: border-color .15s, color .15s;
         }
+        .btn-reset-filters:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+        .btn-reset-filters:disabled { opacity: .4; cursor: not-allowed; }
 
         /* ─── Bar chart ─── */
         .bar-chart { display: flex; flex-direction: column; gap: 12px; }
@@ -222,7 +252,77 @@
             white-space: nowrap;
         }
         .cx-table tr:last-child td { border-bottom: none; }
+        .cx-table tbody tr { cursor: pointer; }
         .cx-table tr:hover td { background: var(--gray-light); }
+
+        /* ─── Detail modal ─── */
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.55);
+            z-index: 300;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal.open { display: flex; }
+        .modal-box {
+            background: var(--white);
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius-lg);
+            padding: 28px 30px;
+            width: 100%;
+            max-width: 560px;
+            max-height: 88vh;
+            overflow-y: auto;
+            position: relative;
+            box-shadow: var(--shadow-md);
+        }
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 18px;
+            font-size: 22px;
+            line-height: 1;
+            color: var(--gray-mid);
+            cursor: pointer;
+            font-weight: 400;
+        }
+        .modal-close:hover { color: var(--black); }
+        .modal-title { font-size: 18px; font-weight: 700; color: var(--black); margin-bottom: 4px; padding-right: 24px; }
+        .modal-subtitle { font-size: 12px; font-weight: 600; color: var(--gray-mid); margin-bottom: 20px; }
+        .modal-section-label {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: var(--blue);
+            margin: 20px 0 10px;
+            padding-top: 16px;
+            border-top: 1px solid var(--gray-border);
+        }
+        .modal-section-label:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+        .modal-row {
+            display: flex;
+            gap: 14px;
+            padding: 7px 0;
+            font-size: 13px;
+            border-bottom: 1px solid var(--gray-light);
+        }
+        .modal-row:last-child { border-bottom: none; }
+        .modal-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            color: var(--gray-mid);
+            min-width: 130px;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        .modal-value { color: var(--black); font-weight: 500; white-space: pre-wrap; word-break: break-word; }
+        .modal-value.empty { color: var(--gray-mid); font-weight: 400; }
 
         /* ─── Badge ─── */
         .badge {
@@ -331,11 +431,6 @@
             .cx-table th       { color: #8b949e; border-bottom-color: #30363d; }
             .cx-table td       { color: #e6edf3; border-bottom-color: #30363d; }
             .cx-table tr:hover td { background: #0d1117; }
-            .filters select, .filters input {
-                background: #21262d;
-                border-color: #30363d;
-                color: #e6edf3;
-            }
         }
 
         /* ─── Nav tabs ─── */
@@ -364,6 +459,9 @@
         @media (max-width: 600px) {
             .dash-grid, .dash-grid-2, .dash-grid-3 { grid-template-columns: 1fr; }
             .bar-row { grid-template-columns: 90px 1fr 36px; }
+            .filter-bar { flex-direction: column; align-items: stretch; }
+            .filter-group select { width: 100%; }
+            .btn-reset-filters { width: 100%; }
         }
     </style>
 </head>
@@ -393,41 +491,56 @@
     <main>
 
         <!-- FILTRY -->
-        <div class="section-block" style="padding: 16px 24px;">
-            <div class="filters">
-                <span class="filter-label">Filtr:</span>
-                <select id="filterStredisko">
-                    <option value="">Všechna střediska</option>
-                    <option>Praha</option>
-                    <option>Pardubice</option>
-                    <option>Hradec</option>
-                    <option>Brno</option>
-                    <option>Eshop</option>
-                </select>
-                <select id="filterSluzba">
-                    <option value="">Vše (zboží + realizace)</option>
-                    <option value="zboží">Zboží</option>
-                    <option value="realizace">Realizace</option>
-                </select>
-                <select id="filterObdobi">
-                    <option value="90">Posledních 90 dní</option>
-                    <option value="30">Posledních 30 dní</option>
-                    <option value="365">Posledních 12 měsíců</option>
-                    <option value="0">Vše</option>
-                </select>
-                <select id="filterStavHovoru">
-                    <option value="">Všechny stavy hovoru</option>
-                    <option>Dokončeno</option>
-                    <option>Nezvednutý hovor</option>
-                    <option>Zavolat jindy</option>
-                    <option>Již kontaktováno</option>
-                    <option>Až bude hotové</option>
-                    <option>Nemá zájem</option>
-                    <option>Domluven termín</option>
-                </select>
-                <select id="filterObchodnik">
-                    <option value="">Všichni obchodníci</option>
-                </select>
+        <div class="section-block" style="padding: 18px 24px;">
+            <div class="filter-bar">
+                <div class="filter-group">
+                    <label for="filterStredisko">Středisko</label>
+                    <select id="filterStredisko">
+                        <option value="">Všechna střediska</option>
+                        <option>Praha</option>
+                        <option>Pardubice</option>
+                        <option>Hradec</option>
+                        <option>Brno</option>
+                        <option>Eshop</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterSluzba">Služba</label>
+                    <select id="filterSluzba">
+                        <option value="">Zboží + realizace</option>
+                        <option value="zboží">Zboží</option>
+                        <option value="realizace">Realizace</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterObdobi">Období</label>
+                    <select id="filterObdobi">
+                        <option value="90">Posledních 90 dní</option>
+                        <option value="30">Posledních 30 dní</option>
+                        <option value="365">Posledních 12 měsíců</option>
+                        <option value="0">Vše</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterStavHovoru">Stav hovoru</label>
+                    <select id="filterStavHovoru">
+                        <option value="">Všechny stavy</option>
+                        <option>Dokončeno</option>
+                        <option>Nezvednutý hovor</option>
+                        <option>Zavolat jindy</option>
+                        <option>Již kontaktováno</option>
+                        <option>Až bude hotové</option>
+                        <option>Nemá zájem</option>
+                        <option>Domluven termín</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterObchodnik">Obchodník</label>
+                    <select id="filterObchodnik">
+                        <option value="">Všichni obchodníci</option>
+                    </select>
+                </div>
+                <button type="button" class="btn-reset-filters" id="resetFiltersBtn" disabled>✕ Zrušit filtry</button>
             </div>
         </div>
 
@@ -508,6 +621,14 @@
         </div>
 
     </main>
+</div>
+
+<!-- Detail modal -->
+<div class="modal" id="detail-modal">
+    <div class="modal-box">
+        <span class="modal-close" onclick="closeDetailModal()">×</span>
+        <div id="modal-content"></div>
+    </div>
 </div>
 
 <!-- PŘIHLÁŠENÍ + FIREBASE -->
@@ -721,6 +842,8 @@ function renderDonut(data) {
 
 // ── Render tabulka ───────────────────────────
 
+let recordsById = {};
+
 function renderTable(data) {
     const sorted = [...data].sort((a,b) => {
         const da = a.datumKontaktu || a.createdAt || '';
@@ -730,8 +853,11 @@ function renderTable(data) {
 
     document.getElementById('tableCount').textContent = `(zobrazeno ${sorted.length} z ${data.length})`;
 
+    recordsById = {};
+    sorted.forEach(r => { recordsById[r.id] = r; });
+
     document.getElementById('cxTableBody').innerHTML = sorted.map(r => `
-        <tr>
+        <tr data-id="${r.id}">
             <td>${fmtDate(r.datumKontaktu || r.createdAt)}</td>
             <td title="${r.jmeno||''}">${r.jmeno || '—'}</td>
             <td>${r.stredisko || '—'}</td>
@@ -744,13 +870,86 @@ function renderTable(data) {
             <td title="${r.poznamkyHovoru||''}" style="max-width:160px">${(r.poznamkyHovoru||'').slice(0,40)}${(r.poznamkyHovoru||'').length>40?'…':''}</td>
         </tr>
     `).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--gray-mid);padding:24px">Žádné záznamy</td></tr>';
+
+    document.getElementById('cxTableBody').querySelectorAll('tr[data-id]').forEach(tr => {
+        tr.addEventListener('click', () => openDetailModal(recordsById[tr.dataset.id]));
+    });
 }
+
+// ── Detail modal ──────────────────────────────
+
+function modalRow(label, value, empty) {
+    const has = value !== null && value !== undefined && String(value).trim() !== '';
+    return `<div class="modal-row">
+        <span class="modal-label">${label}</span>
+        <span class="modal-value${has ? '' : ' empty'}">${has ? value : (empty || '—')}</span>
+    </div>`;
+}
+
+function openDetailModal(r) {
+    if (!r) return;
+    const mc = document.getElementById('modal-content');
+    mc.innerHTML = `
+        <div class="modal-title">${r.jmeno || 'Bez jména'}</div>
+        <div class="modal-subtitle">${r.stredisko || '—'} · ${fmtDate(r.datumKontaktu || r.createdAt)}</div>
+
+        <div class="modal-section-label">Kontakt</div>
+        ${modalRow('Telefon', r.telefon)}
+        ${modalRow('E-mail', r.email)}
+        ${modalRow('Firma', r.firma)}
+
+        <div class="modal-section-label">Objednávka</div>
+        ${modalRow('Obchodník', r.obchodnik || 'Neznámý')}
+        ${modalRow('Služba', r.sluzba)}
+        ${modalRow('Číslo objednávky', r.cisloObjednavky)}
+        ${modalRow('Datum objednávky', r.datumObjednavky ? fmtDate(r.datumObjednavky) : null)}
+        ${modalRow('Celkem', r.celkem ? r.celkem + ' Kč' : null)}
+        ${modalRow('Stav objednávky', r.stavObjednavky)}
+
+        <div class="modal-section-label">Hovor</div>
+        ${modalRow('Datum kontaktu', fmtDate(r.datumKontaktu || r.createdAt))}
+        ${modalRow('Stav hovoru', stavBadge(r.stavHovoru))}
+        ${modalRow('Poznámky k hovoru', r.poznamkyHovoru)}
+
+        <div class="modal-section-label">Hodnocení</div>
+        ${modalRow('Spokojenost', r.spokojenost !== null && r.spokojenost !== undefined ? r.spokojenost + ' / 10' : null)}
+        ${modalRow('Doporučení', r.doporuceni !== null && r.doporuceni !== undefined ? r.doporuceni + ' / 10' : null)}
+        ${modalRow('Šel by znovu', r.selByZnovu)}
+        ${modalRow('Co zlepšit', r.coZlepsit)}
+    `;
+    document.querySelector('#detail-modal .modal-box').scrollTop = 0;
+    document.getElementById('detail-modal').classList.add('open');
+}
+
+window.closeDetailModal = function() {
+    document.getElementById('detail-modal').classList.remove('open');
+};
+document.getElementById('detail-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeDetailModal();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDetailModal();
+});
 
 // ── Hlavní render ────────────────────────────
 
 let allData = [];
 
+const FILTER_IDS = ['filterStredisko','filterSluzba','filterObdobi','filterStavHovoru','filterObchodnik'];
+
+function updateFilterUI() {
+    let anyActive = false;
+    FILTER_IDS.forEach(id => {
+        const sel = document.getElementById(id);
+        const isActive = sel.value !== sel.options[0].value;
+        sel.classList.toggle('f-active', isActive);
+        if (isActive) anyActive = true;
+    });
+    document.getElementById('resetFiltersBtn').disabled = !anyActive;
+}
+
 function render() {
+    updateFilterUI();
     const data = applyFilters(allData);
     const dokonceno = data.filter(r => r.stavHovoru === 'Dokončeno');
 
@@ -829,8 +1028,15 @@ async function init() {
     });
 
     render();
-    ['filterStredisko','filterSluzba','filterObdobi','filterStavHovoru','filterObchodnik'].forEach(id => {
+    FILTER_IDS.forEach(id => {
         document.getElementById(id).addEventListener('change', render);
+    });
+    document.getElementById('resetFiltersBtn').addEventListener('click', () => {
+        FILTER_IDS.forEach(id => {
+            const sel = document.getElementById(id);
+            sel.value = sel.options[0].value;
+        });
+        render();
     });
 }
 

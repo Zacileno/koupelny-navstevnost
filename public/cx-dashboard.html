@@ -169,6 +169,79 @@
         .btn-reset-filters:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
         .btn-reset-filters:disabled { opacity: .4; cursor: not-allowed; }
 
+        /* ─── Období: přepínač Měsíc / Vlastní (vzor z dashboard.css) ─── */
+        .period-picker { display: flex; align-items: center; gap: 10px; }
+        .view-mode-tabs {
+            display: flex;
+            gap: 3px;
+            background: var(--gray-light);
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius);
+            padding: 3px;
+            flex-shrink: 0;
+        }
+        .view-mode-btn {
+            background: transparent;
+            border: none;
+            color: var(--gray-mid);
+            padding: 6px 13px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: var(--font);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .04em;
+            transition: all .15s;
+        }
+        .view-mode-btn:hover { color: var(--black); }
+        .view-mode-btn.active { background: var(--blue); color: #fff; }
+
+        .month-nav { display: flex; align-items: center; gap: 6px; }
+        .month-nav-btn {
+            background: var(--gray-light);
+            border: 1px solid var(--gray-border);
+            color: var(--gray-mid);
+            width: 30px;
+            height: 30px;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 16px;
+            font-family: var(--font);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            transition: all .15s;
+        }
+        .month-nav-btn:hover { background: var(--blue); color: #fff; border-color: var(--blue); }
+        .month-current {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--black);
+            min-width: 108px;
+            text-align: center;
+            letter-spacing: .01em;
+            text-transform: capitalize;
+            transition: color .15s;
+        }
+        .month-current.f-active { color: var(--blue); }
+
+        .custom-range { display: flex; align-items: center; gap: 8px; }
+        .custom-range input[type="date"] {
+            width: auto;
+            min-width: 0;
+            padding: 8px 10px;
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius);
+            font-size: 12px;
+            font-family: var(--font);
+            font-weight: 500;
+            color: var(--black);
+            background: var(--gray-light);
+        }
+        .custom-range input[type="date"].f-active { border-color: var(--blue); color: var(--blue); }
+        .custom-range .range-sep { color: var(--gray-mid); font-size: 12px; }
+
         /* ─── Bar chart ─── */
         .bar-chart { display: flex; flex-direction: column; gap: 12px; }
         .bar-row {
@@ -462,6 +535,10 @@
             .filter-bar { flex-direction: column; align-items: stretch; }
             .filter-group select { width: 100%; }
             .btn-reset-filters { width: 100%; }
+            .period-picker { flex-direction: column; align-items: stretch; gap: 10px; }
+            .month-nav { justify-content: space-between; }
+            .custom-range { flex-direction: column; align-items: stretch; }
+            .custom-range input[type="date"] { width: 100%; }
         }
     </style>
 </head>
@@ -513,13 +590,23 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label for="filterObdobi">Období</label>
-                    <select id="filterObdobi">
-                        <option value="90">Posledních 90 dní</option>
-                        <option value="30">Posledních 30 dní</option>
-                        <option value="365">Posledních 12 měsíců</option>
-                        <option value="0">Vše</option>
-                    </select>
+                    <label>Období</label>
+                    <div class="period-picker">
+                        <div class="view-mode-tabs">
+                            <button type="button" class="view-mode-btn active" data-mode="month">Měsíc</button>
+                            <button type="button" class="view-mode-btn" data-mode="custom">Vlastní</button>
+                        </div>
+                        <div class="month-nav" id="monthNavWrap">
+                            <button type="button" class="month-nav-btn" id="prevMonth">&#8249;</button>
+                            <div class="month-current" id="monthCurrent">–</div>
+                            <button type="button" class="month-nav-btn" id="nextMonth">&#8250;</button>
+                        </div>
+                        <div class="custom-range" id="customRangeWrap" style="display:none">
+                            <input type="date" id="customFrom">
+                            <span class="range-sep">–</span>
+                            <input type="date" id="customTo">
+                        </div>
+                    </div>
                 </div>
                 <div class="filter-group">
                     <label for="filterStavHovoru">Stav hovoru</label>
@@ -687,12 +774,63 @@ async function loadAll() {
 
 // ── Filtry ───────────────────────────────────
 
+// ── Období: přepínač Měsíc / Vlastní (vzor z dashboard.js) ──
+
+const today = new Date();
+const DEFAULT_PERIOD_YEAR  = today.getFullYear();
+const DEFAULT_PERIOD_MONTH = today.getMonth(); // 0-11
+
+let periodMode  = 'month';        // 'month' | 'custom'
+let periodYear  = DEFAULT_PERIOD_YEAR;
+let periodMonth = DEFAULT_PERIOD_MONTH;
+let customFrom  = '';
+let customTo    = '';
+
+function getMonthRange(year, month) {
+    const from = new Date(year, month, 1);
+    const to   = new Date(year, month + 1, 0); // poslední den měsíce
+    return {
+        from: `${from.getFullYear()}-${String(from.getMonth()+1).padStart(2,'0')}-${String(from.getDate()).padStart(2,'0')}`,
+        to:   `${to.getFullYear()}-${String(to.getMonth()+1).padStart(2,'0')}-${String(to.getDate()).padStart(2,'0')}`
+    };
+}
+
+function formatMonthLabel(year, month) {
+    return new Date(year, month, 1).toLocaleDateString('cs-CZ', { month: 'long', year: 'numeric' });
+}
+
+function toISODate(s) {
+    if (!s) return '';
+    if (s.includes('.')) {
+        const [d, m, y] = s.split('.').map(p => p.trim());
+        if (d && m && y) return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    }
+    return s.slice(0, 10);
+}
+
+function getPeriodRange() {
+    if (periodMode === 'custom') {
+        if (customFrom && customTo && customFrom <= customTo) return { from: customFrom, to: customTo };
+        return null; // rozsah zatím nevyplněný — nefiltrovat
+    }
+    return getMonthRange(periodYear, periodMonth);
+}
+
+function isPeriodActive() {
+    if (periodMode === 'custom') return !!(customFrom && customTo);
+    return periodYear !== DEFAULT_PERIOD_YEAR || periodMonth !== DEFAULT_PERIOD_MONTH;
+}
+
+function updateMonthDisplay() {
+    document.getElementById('monthCurrent').textContent = formatMonthLabel(periodYear, periodMonth);
+}
+
 function applyFilters(data) {
     const stredisko  = document.getElementById('filterStredisko').value;
     const sluzba     = document.getElementById('filterSluzba').value;
-    const obdobi     = parseInt(document.getElementById('filterObdobi').value);
     const stavHov    = document.getElementById('filterStavHovoru').value;
     const obchodnik  = document.getElementById('filterObchodnik').value;
+    const range      = getPeriodRange();
 
     return data.filter(r => {
         if (stredisko && r.stredisko !== stredisko) return false;
@@ -702,14 +840,9 @@ function applyFilters(data) {
             const rOb = r.obchodnik || 'Neznámý';
             if (rOb !== obchodnik) return false;
         }
-        if (obdobi > 0) {
-            const d = r.datumKontaktu || r.createdAt || '';
-            if (!d) return false;
-            const date = new Date(d.includes('.') ? d.split('.').reverse().join('-') : d);
-            if (isNaN(date)) return false;
-            const cutoff = new Date();
-            cutoff.setDate(cutoff.getDate() - obdobi);
-            if (date < cutoff) return false;
+        if (range) {
+            const d = toISODate(r.datumKontaktu || r.createdAt || '');
+            if (!d || d < range.from || d > range.to) return false;
         }
         return true;
     });
@@ -935,16 +1068,20 @@ document.addEventListener('keydown', e => {
 
 let allData = [];
 
-const FILTER_IDS = ['filterStredisko','filterSluzba','filterObdobi','filterStavHovoru','filterObchodnik'];
+const FILTER_IDS = ['filterStredisko','filterSluzba','filterStavHovoru','filterObchodnik'];
 
 function updateFilterUI() {
-    let anyActive = false;
+    updateMonthDisplay();
+    let anyActive = isPeriodActive();
     FILTER_IDS.forEach(id => {
         const sel = document.getElementById(id);
         const isActive = sel.value !== sel.options[0].value;
         sel.classList.toggle('f-active', isActive);
         if (isActive) anyActive = true;
     });
+    document.getElementById('monthCurrent').classList.toggle('f-active', periodMode === 'month' && isPeriodActive());
+    document.getElementById('customFrom').classList.toggle('f-active', periodMode === 'custom' && isPeriodActive());
+    document.getElementById('customTo').classList.toggle('f-active', periodMode === 'custom' && isPeriodActive());
     document.getElementById('resetFiltersBtn').disabled = !anyActive;
 }
 
@@ -1031,11 +1168,46 @@ async function init() {
     FILTER_IDS.forEach(id => {
         document.getElementById(id).addEventListener('change', render);
     });
+
+    // Období: přepínač Měsíc / Vlastní
+    document.querySelectorAll('.view-mode-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.view-mode-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            periodMode = this.dataset.mode;
+            document.getElementById('monthNavWrap').style.display    = periodMode === 'month'  ? 'flex' : 'none';
+            document.getElementById('customRangeWrap').style.display = periodMode === 'custom' ? 'flex' : 'none';
+            render();
+        });
+    });
+    document.getElementById('prevMonth').addEventListener('click', () => {
+        periodMonth--;
+        if (periodMonth < 0) { periodMonth = 11; periodYear--; }
+        render();
+    });
+    document.getElementById('nextMonth').addEventListener('click', () => {
+        periodMonth++;
+        if (periodMonth > 11) { periodMonth = 0; periodYear++; }
+        render();
+    });
+    document.getElementById('customFrom').addEventListener('change', e => { customFrom = e.target.value; render(); });
+    document.getElementById('customTo').addEventListener('change',   e => { customTo   = e.target.value; render(); });
+
     document.getElementById('resetFiltersBtn').addEventListener('click', () => {
         FILTER_IDS.forEach(id => {
             const sel = document.getElementById(id);
             sel.value = sel.options[0].value;
         });
+        periodMode  = 'month';
+        periodYear  = DEFAULT_PERIOD_YEAR;
+        periodMonth = DEFAULT_PERIOD_MONTH;
+        customFrom  = '';
+        customTo    = '';
+        document.getElementById('customFrom').value = '';
+        document.getElementById('customTo').value   = '';
+        document.querySelectorAll('.view-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === 'month'));
+        document.getElementById('monthNavWrap').style.display    = 'flex';
+        document.getElementById('customRangeWrap').style.display = 'none';
         render();
     });
 }

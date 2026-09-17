@@ -564,11 +564,12 @@ function updatePieChart() {
     if (charts.pie) charts.pie.destroy();
 
     const sourceTotals = {
-        instagram: 0, web: 0, facebook: 0, doporuceni: 0, walkin: 0,
+        instagram: 0, web: 0, facebook: 0, ai: 0, doporuceni: 0, walkin: 0,
         'influencer-mammadomisha': 0, 'influencer-partlova': 0, 'influencer-hustle': 0, jine: 0
     };
     const sourceNames = {
         instagram: 'Instagram', web: 'Web', facebook: 'Facebook',
+        ai: 'AI - Umělá inteligence',
         doporuceni: 'Doporučení', walkin: 'Walk-in',
         'influencer-mammadomisha': 'Mammadomisha',
         'influencer-partlova': 'Partlova',
@@ -591,7 +592,7 @@ function updatePieChart() {
             datasets: [{
                 data: hasData ? keys.map(k => sourceTotals[k]) : [1],
                 backgroundColor: hasData
-                    ? ['#179ED9','#0FBCBD','#8FA378','#C5A66B','#B1B15D','#A08660','#34d399','#f59e0b','#5a6070']
+                    ? ['#179ED9','#0FBCBD','#8FA378','#C5A66B','#B1B15D','#A08660','#34d399','#f59e0b','#e879f9','#5a6070']
                     : ['#252a38'],
                 borderWidth: 0,
                 hoverOffset: 6
@@ -747,6 +748,7 @@ async function openDetail(studio, date) {
 
         const sourceNames = {
             instagram: 'Instagram', web: 'Web', facebook: 'Facebook',
+            ai: 'AI - Umělá inteligence',
             doporuceni: 'Doporučení', walkin: 'Walk-in',
             'influencer-mammadomisha': 'Mammadomisha',
             'influencer-partlova': 'Partlova',

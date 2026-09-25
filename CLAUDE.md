@@ -59,6 +59,7 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 - **Firestore kolekce:** `cx_feedback` (794 historických záznamů)
 - **Klíčová data:** NPS (doporučení 1–10), spokojenost (0–10), sel by znovu, stav hovoru
 - **Stavy hovoru:** Dokončeno / Nezvednutý hovor / Zavolat jindy / Již kontaktováno / Až bude hotové / Nemá zájem / Domluven termín
+- **Tabulka záznamů v dashboardu:** vlastní toolbar nad tabulkou — segment podle NPS (Kritici 1–6 / Neutrální 7–8 / Promotéři 9–10, podle `doporuceni`), řazení (Nejnovější / Nejhorší / Nejlepší — doporučení, pak spokojenost, pak datum), „Zobrazit všech N“ nad limit 50 a Export CSV (středník + BOM pro český Excel, vč. kontaktů a „Co zlepšit“). Segment platí **jen pro tabulku**, ne pro KPI/grafy — záměrně, jinak by z NPS bylo −100. Horní filtry (středisko, období…) se na tabulku i export aplikují.
 
 ### 3. Realizace
 - **Účel:** Kontrolní záznamy z průběhu staveb, fotodokumentace

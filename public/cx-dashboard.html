@@ -195,6 +195,21 @@
         }
         .view-mode-btn:hover { color: var(--black); }
         .view-mode-btn.active { background: var(--blue); color: #fff; }
+        .view-mode-btn.seg-low.active  { background: #f85149; }
+        .view-mode-btn.seg-mid.active  { background: #d29922; }
+        .view-mode-btn.seg-high.active { background: #3fb950; }
+
+        /* ─── Toolbar nad tabulkou záznamů ─── */
+        .table-toolbar {
+            display: flex;
+            align-items: flex-end;
+            gap: 18px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .btn-export { margin-left: auto; color: var(--blue); border-color: var(--blue); }
+        .btn-export:hover { background: var(--blue-light); }
+        .btn-show-all { display: block; margin: 16px auto 0; }
 
         .month-nav { display: flex; align-items: center; gap: 6px; }
         .month-nav-btn {
@@ -535,6 +550,9 @@
             .filter-bar { flex-direction: column; align-items: stretch; }
             .filter-group select { width: 100%; }
             .btn-reset-filters { width: 100%; }
+            .table-toolbar { flex-direction: column; align-items: stretch; }
+            .table-toolbar .view-mode-tabs { flex-wrap: wrap; }
+            .btn-export { margin-left: 0; }
             .period-picker { flex-direction: column; align-items: stretch; gap: 10px; }
             .month-nav { justify-content: space-between; }
             .custom-range { flex-direction: column; align-items: stretch; }
@@ -677,9 +695,29 @@
             </div>
         </div>
 
-        <!-- POSLEDNÍCH 50 ZÁZNAMŮ -->
+        <!-- ZÁZNAMY (vlastní filtr hodnocení + řazení + export, platí jen pro tabulku) -->
         <div class="section-block">
-            <h2>Poslední záznamy <span id="tableCount" style="font-weight:500;opacity:.6"></span></h2>
+            <h2>Záznamy <span id="tableCount" style="font-weight:500;opacity:.6"></span></h2>
+            <div class="table-toolbar">
+                <div class="filter-group">
+                    <label>Hodnocení (doporučení)</label>
+                    <div class="view-mode-tabs" id="segmentTabs">
+                        <button type="button" class="view-mode-btn active" data-segment="">Vše</button>
+                        <button type="button" class="view-mode-btn seg-low" data-segment="detractor">Kritici 1–6</button>
+                        <button type="button" class="view-mode-btn seg-mid" data-segment="passive">Neutrální 7–8</button>
+                        <button type="button" class="view-mode-btn seg-high" data-segment="promoter">Promotéři 9–10</button>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="tableSort">Řazení</label>
+                    <select id="tableSort">
+                        <option value="date">Nejnovější</option>
+                        <option value="worst">Nejhorší hodnocení</option>
+                        <option value="best">Nejlepší hodnocení</option>
+                    </select>
+                </div>
+                <button type="button" class="btn-reset-filters btn-export" id="exportCsvBtn">⤓ Export CSV</button>
+            </div>
             <div class="cx-table-wrap">
                 <table class="cx-table" id="cxTable">
                     <colgroup>
@@ -705,6 +743,7 @@
                     </tbody>
                 </table>
             </div>
+            <button type="button" class="btn-reset-filters btn-show-all" id="showAllBtn" style="display:none"></button>
         </div>
 
     </main>
@@ -977,14 +1016,58 @@ function renderDonut(data) {
 
 let recordsById = {};
 
-function renderTable(data) {
-    const sorted = [...data].sort((a,b) => {
-        const da = a.datumKontaktu || a.createdAt || '';
-        const db2 = b.datumKontaktu || b.createdAt || '';
-        return db2.localeCompare(da);
-    }).slice(0, 50);
+// Stav ovládání tabulky — platí jen pro tabulku, ne pro KPI/grafy
+// (filtr "jen kritici" by jinak z NPS udělal nesmyslných −100)
+const TABLE_LIMIT = 50;
+let tableSegment = '';     // '' | 'detractor' | 'passive' | 'promoter'
+let tableShowAll = false;
+let tableRows    = [];     // aktuálně vyfiltrované + seřazené řádky (pro export)
 
-    document.getElementById('tableCount').textContent = `(zobrazeno ${sorted.length} z ${data.length})`;
+function hasScore(v) {
+    return typeof v === 'number' && v >= 1 && v <= 10;
+}
+
+// NPS segmentace podle doporučení — stejné hranice jako NPS v KPI
+function inSegment(r, segment) {
+    if (!segment) return true;
+    if (!hasScore(r.doporuceni)) return false;
+    if (segment === 'detractor') return r.doporuceni <= 6;
+    if (segment === 'passive')   return r.doporuceni >= 7 && r.doporuceni <= 8;
+    if (segment === 'promoter')  return r.doporuceni >= 9;
+    return true;
+}
+
+function recordDate(r) {
+    return toISODate(r.datumKontaktu || r.createdAt || '');
+}
+
+// Řazení podle hodnocení: doporučení, pak spokojenost, pak nejnovější.
+// Záznamy bez hodnocení vždy na konec.
+function compareByScore(a, b, dir) {
+    const ra = hasScore(a.doporuceni), rb = hasScore(b.doporuceni);
+    if (ra !== rb) return ra ? -1 : 1;
+    if (ra && a.doporuceni !== b.doporuceni) return dir * (a.doporuceni - b.doporuceni);
+    const sa = typeof a.spokojenost === 'number', sb = typeof b.spokojenost === 'number';
+    if (sa !== sb) return sa ? -1 : 1;
+    if (sa && a.spokojenost !== b.spokojenost) return dir * (a.spokojenost - b.spokojenost);
+    return recordDate(b).localeCompare(recordDate(a));
+}
+
+function renderTable(data) {
+    const sortMode = document.getElementById('tableSort').value;
+    const filtered = data.filter(r => inSegment(r, tableSegment));
+    tableRows = filtered.sort((a, b) => {
+        if (sortMode === 'worst') return compareByScore(a, b, 1);
+        if (sortMode === 'best')  return compareByScore(a, b, -1);
+        return recordDate(b).localeCompare(recordDate(a));
+    });
+    const sorted = tableShowAll ? tableRows : tableRows.slice(0, TABLE_LIMIT);
+
+    document.getElementById('tableCount').textContent = `(zobrazeno ${sorted.length} z ${tableRows.length})`;
+    const showAllBtn = document.getElementById('showAllBtn');
+    showAllBtn.style.display = tableRows.length > TABLE_LIMIT ? 'block' : 'none';
+    showAllBtn.textContent = tableShowAll ? `Zobrazit jen prvních ${TABLE_LIMIT}` : `Zobrazit všech ${tableRows.length}`;
+    document.getElementById('exportCsvBtn').disabled = tableRows.length === 0;
 
     recordsById = {};
     sorted.forEach(r => { recordsById[r.id] = r; });
@@ -1007,6 +1090,48 @@ function renderTable(data) {
     document.getElementById('cxTableBody').querySelectorAll('tr[data-id]').forEach(tr => {
         tr.addEventListener('click', () => openDetailModal(recordsById[tr.dataset.id]));
     });
+}
+
+// ── Export CSV ────────────────────────────────
+// Exportuje přesně to, co je v tabulce (horní filtry + hodnocení + řazení),
+// bez limitu 50. Středník + BOM, aby to český Excel otevřel správně.
+
+function csvCell(v) {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function exportCsv() {
+    const cols = [
+        ['Datum kontaktu', r => recordDate(r)],
+        ['Jméno',          r => r.jmeno],
+        ['Telefon',        r => r.telefon],
+        ['E-mail',         r => r.email],
+        ['Firma',          r => r.firma],
+        ['Středisko',      r => r.stredisko],
+        ['Obchodník',      r => r.obchodnik || 'Neznámý'],
+        ['Služba',         r => r.sluzba],
+        ['Číslo objednávky', r => r.cisloObjednavky],
+        ['Celkem (Kč)',    r => r.celkem],
+        ['Stav hovoru',    r => r.stavHovoru],
+        ['Spokojenost',    r => r.spokojenost],
+        ['Doporučení',     r => r.doporuceni],
+        ['Šel by znovu',   r => r.selByZnovu],
+        ['Co zlepšit',     r => r.coZlepsit],
+        ['Poznámky k hovoru', r => r.poznamkyHovoru],
+    ];
+    const lines = [cols.map(c => csvCell(c[0])).join(';')];
+    tableRows.forEach(r => lines.push(cols.map(c => csvCell(c[1](r))).join(';')));
+
+    const segLabel = { detractor: '-kritici', passive: '-neutralni', promoter: '-promoteri' }[tableSegment] || '';
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `cx-zaznamy${segLabel}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
 }
 
 // ── Detail modal ──────────────────────────────
@@ -1082,6 +1207,11 @@ function updateFilterUI() {
     document.getElementById('monthCurrent').classList.toggle('f-active', periodMode === 'month' && isPeriodActive());
     document.getElementById('customFrom').classList.toggle('f-active', periodMode === 'custom' && isPeriodActive());
     document.getElementById('customTo').classList.toggle('f-active', periodMode === 'custom' && isPeriodActive());
+    const sortSel = document.getElementById('tableSort');
+    sortSel.classList.toggle('f-active', sortSel.value !== 'date');
+    if (tableSegment || sortSel.value !== 'date') anyActive = true;
+    document.querySelectorAll('#segmentTabs .view-mode-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.segment === tableSegment));
     document.getElementById('resetFiltersBtn').disabled = !anyActive;
 }
 
@@ -1170,9 +1300,9 @@ async function init() {
     });
 
     // Období: přepínač Měsíc / Vlastní
-    document.querySelectorAll('.view-mode-btn').forEach(btn => {
+    document.querySelectorAll('.period-picker .view-mode-btn').forEach(btn => {
         btn.addEventListener('click', function() {
-            document.querySelectorAll('.view-mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.period-picker .view-mode-btn').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
             periodMode = this.dataset.mode;
             document.getElementById('monthNavWrap').style.display    = periodMode === 'month'  ? 'flex' : 'none';
@@ -1193,11 +1323,29 @@ async function init() {
     document.getElementById('customFrom').addEventListener('change', e => { customFrom = e.target.value; render(); });
     document.getElementById('customTo').addEventListener('change',   e => { customTo   = e.target.value; render(); });
 
+    // Tabulka: hodnocení, řazení, zobrazit vše, export
+    document.querySelectorAll('#segmentTabs .view-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            tableSegment = btn.dataset.segment;
+            // Kritici → nejhorší nahoře, promotéři → nejlepší nahoře (řazení jde pak ručně změnit)
+            const sortSel = document.getElementById('tableSort');
+            if (tableSegment === 'detractor') sortSel.value = 'worst';
+            if (tableSegment === 'promoter')  sortSel.value = 'best';
+            render();
+        });
+    });
+    document.getElementById('tableSort').addEventListener('change', render);
+    document.getElementById('showAllBtn').addEventListener('click', () => { tableShowAll = !tableShowAll; render(); });
+    document.getElementById('exportCsvBtn').addEventListener('click', exportCsv);
+
     document.getElementById('resetFiltersBtn').addEventListener('click', () => {
         FILTER_IDS.forEach(id => {
             const sel = document.getElementById(id);
             sel.value = sel.options[0].value;
         });
+        tableSegment = '';
+        tableShowAll = false;
+        document.getElementById('tableSort').value = 'date';
         periodMode  = 'month';
         periodYear  = DEFAULT_PERIOD_YEAR;
         periodMonth = DEFAULT_PERIOD_MONTH;
@@ -1205,7 +1353,7 @@ async function init() {
         customTo    = '';
         document.getElementById('customFrom').value = '';
         document.getElementById('customTo').value   = '';
-        document.querySelectorAll('.view-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === 'month'));
+        document.querySelectorAll('.period-picker .view-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === 'month'));
         document.getElementById('monthNavWrap').style.display    = 'flex';
         document.getElementById('customRangeWrap').style.display = 'none';
         render();

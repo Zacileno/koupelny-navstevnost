@@ -50,7 +50,7 @@
 </div>
 
 <script type="module">
-import { initFirebase, requireAuth } from './shared/auth-common.js';
+import { initFirebase, requireAuth, getUserSlug } from './shared/auth-common.js';
 
 const CDN = 'https://www.gstatic.com/firebasejs/12.9.0';
 
@@ -111,10 +111,25 @@ if (params.get('claimError') === '1') {
 }
 
 // Pokud je uživatel už přihlášený (a má platný slug claim), přesměruj rovnou.
+//
+// Past k opakování: requireAuth() při chybějícím slug claimu přesměruje na
+// `${redirectPath}?redirect=...&claimError=1` — jenže tady na loginu je
+// redirectPath vždy '/login.html', takže by se stránka přesměrovávala sama
+// na sebe. `redirect` parametr pokaždé zabalí celou dosavadní (už zakódovanou)
+// URL, takže by rostla exponenciálně, dokud by hosting neskončil chybou
+// "URI Too Long" (přesně tohle potkalo Jana Vodičku 2026-09-01 se zastaralým
+// tokenem bez claimu — viz CLAUDE.md). Proto se tenhle případ řeší přímo tady
+// (odhlásit + ukázat chybu), ne přes requireAuth().
 (async () => {
     const { auth } = await initFirebase();
     auth.onAuthStateChanged(async user => {
         if (!user) return;
+        const slug = await getUserSlug();
+        if (!slug) {
+            await auth.signOut();
+            showError('Účet ještě nemá dokončené nastavení přístupu. Zkuste se odhlásit a přihlásit znovu, případně kontaktujte administrátora.');
+            return;
+        }
         const session = await requireAuth('/login.html');
         if (session) window.location.href = await resolveTarget(session.user.uid, session.slug);
     });
@@ -133,6 +148,15 @@ loginForm.addEventListener('submit', async (e) => {
         const { auth } = await initFirebase();
         const { signInWithEmailAndPassword } = await import(`${CDN}/firebase-auth.js`);
         await signInWithEmailAndPassword(auth, email, password);
+
+        // Stejná past jako u auto-přihlášení výše: requireAuth('/login.html')
+        // by se odsud při chybějícím slug claimu přesměroval sám na sebe.
+        const slug = await getUserSlug();
+        if (!slug) {
+            await auth.signOut();
+            throw Object.assign(new Error('Účet nemá dokončené nastavení přístupu.'), { code: 'claim-missing' });
+        }
+
         const session = await requireAuth('/login.html');
         if (session) window.location.href = await resolveTarget(session.user.uid, session.slug);
     } catch (err) {
@@ -150,6 +174,9 @@ loginForm.addEventListener('submit', async (e) => {
                 break;
             case 'auth/user-disabled':
                 showError('Účet byl deaktivován. Kontaktujte administrátora.');
+                break;
+            case 'claim-missing':
+                showError('Účet ještě nemá dokončené nastavení přístupu. Zkuste se odhlásit a přihlásit znovu, případně kontaktujte administrátora.');
                 break;
             default:
                 showError('Přihlášení se nezdařilo. Zkuste to znovu.');

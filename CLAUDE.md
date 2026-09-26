@@ -274,6 +274,17 @@ cp -r worktree/public/adaptace public/adaptace
 Soubory vytvořené v git worktree nejsou automaticky v hlavní větvi. `git merge` hlásí "already up to date" a soubory se na hosting nedostanou.
 **Řešení:** po práci v worktree vždy `cp -r` do hlavního projektu, pak `firebase deploy`.
 
+### `gcloud`/ADC reauth vyprší — počítat s tím dopředu, ne čekat na chybu
+Lokální Admin SDK skripty (`admin.credential.applicationDefault()`) i `gcloud auth print-access-token` běží na Application Default Credentials, které mají krátkou expiraci (org policy vynucuje pravidelný reauth). Když vyprší, selže to na `invalid_grant` / `reauth related error (invalid_rapt)` — a oprava je čistě interaktivní, přihlášení přes prohlížeč, které Claude Code nemůže spustit samo za uživatele.
+**Řešení:** hned na začátku úkolu, který potřebuje číst/zapisovat do Firestore nebo Firebase Auth přes Admin SDK (ne přes `firebase` CLI, ten má vlastní, samostatně platný login), zkusit malý ověřovací dotaz jako první krok — ne až uprostřed většího skriptu. Pokud selže na `invalid_rapt`, rovnou požádat uživatele spustit v terminálu:
+```bash
+gcloud auth application-default login
+```
+a počkat na potvrzení, než pokračovat. Zároveň nastavit quota project (viz bod 3 v pasti níže), ať se hned nato nesekneme na druhé, jinak vypadající chybě (`identitytoolkit.googleapis.com ... requires a quota project`) při volání Auth API (`admin.auth()...`) — Firestore dotazy quota project nepotřebují, Auth API ano:
+```bash
+gcloud auth application-default set-quota-project koupelny-navstevnost
+```
+
 ### Nová `onCall` Cloud Function — dva neviditelné bloky při prvním deployi
 Zjištěno 2026-08-07/08 při nasazení `onboardEmployee`/`offboardEmployee` (první `onCall` funkce v projektu — do té doby existoval jen Storage trigger `konvertujHeic`, který tohle nikdy nepotkal):
 1. **`firebase deploy --only functions` může "uspět", ale funkce přesto nejde zavolat.** Firebase potřebuje nastavit IAM `allUsers`/Cloud Run Invoker na podkladovou Cloud Run službu (`onCall` si ověřuje identitu sám uvnitř, ale Cloud Run musí požadavek pustit dovnitř). Pokud se to nepovede, CLI to nahlásí jako chybu při PRVNÍM pokusu — ale při dalším `deploy` bez změny zdrojového kódu Firebase krok tiše přeskočí ("Skipped — no changes detected") a vypíše "Deploy complete!", i když IAM binding pořád chybí. **Ověřit vždy přímo:** `curl -X POST <function-url>` bez auth — Google Frontend 403 (HTML) = binding chybí, `{"error":{"status":"UNAUTHENTICATED"}}` (JSON) = binding je OK a request se dostal až do naší funkce.

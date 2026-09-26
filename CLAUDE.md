@@ -85,7 +85,8 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
   - **⚠️ Dvojí identita — past k opakování:** `tym.html`/`muj-plan.html` čtou roli z `users/{uid}` (doc ID = Firebase Auth UID), zatímco sdílený login/Dovolená čtou ze `users/{slug}` (doc ID = jméno-slug, s vlastním polem `uid` uvnitř) — **dva různé dokumenty pro jednoho člověka**, žádná automatická provázanost. `getUserProfile()` v `adaptace-common.js` to obchází zkusmo (nejdřív `getDoc(users/{uid})`, pak dotaz na pole `uid`, pak na `email`), ale pokud se `users/{uid}` admin dokument založí na **jiný e-mail/alias, než jaký má člověk skutečně přiřazený k Auth účtu** (např. "barca.syrova@..." místo skutečného "barbora.syrova@..."), založí se tím tichý **duplicitní Auth účet** s jiným UID, na který nikdo nikdy nepřihlásí — a člověk s reálným účtem nemá žádný `role` dokument, takže ho `adaptace/login.html` (`redirect()`) vždy pošle na `/muj-plan.html` místo `/tym.html`, bez chybové hlášky. **Zjištěno a opraveno 2026-07-22:** přesně tohle postihlo Barboru Syrovou — opraveno zápisem `role: admin` na její skutečné UID (`8P9XiyZCf6gm6iu56AW8Yuk0lQD2`), stejným vzorem jako u ostatních 5 (ověřeno, že Martin/Matouš/Jakub/Honza mají `users/{uid}` doc uid shodné se svým reálným Auth účtem, jen Barbora ne). Osiřelý duplicitní účet `barca.syrova@koupelny-syrovy.cz` (`uid: tadbrl6lFeWZv2TiBIxZa0EG74K3`, nikdy nepřihlášen) smazán (Auth účet i Firestore doc). Při zakládání dalšího admina vždy ověřit e-mail proti existujícímu `users/{slug}.email`, ne psát z hlavy/přezdívky.
   - **Firestore pravidlo:** pole `phases`/`ongoingCategories`/`days` jsou v Firestore vždy přepisována jako celé pole najednou (`updateDoc(ref, { phases })`), ne dot-path na konkrétní index (`phases.0.weeks.1...`) — Firestore neumí adresovat prvek pole podle indexu. Viz komentář `withGoalUpdate`/`toggleGoal` v `muj-plan.html`/`tym.html`.
   - **Zpětná vazba u každého cíle:** každý cíl týdenní šablony má `employeeNote` (píše nováček) a `supervisorNote` (píše manažer), nezávisle na confirm/reject akci. UI: kliknutím na cíl se otevře modal (`muj-plan.html` pro nováčka, "Zkontrolovat" v `tym.html` pro manažera) s poznámkou od druhé strany a polem pro vlastní — první verze (vždy viditelný inline textarea u každého cíle) byla nepřehledná, poznámka od manažera se snadno přehlédla. Řádek cíle navíc nese viditelný zlatý badge "💬 Poznámka od manažera/nováčka", když poznámka existuje. **Bez notifikace:** nováček se o nové poznámce od manažera dozví jen tak, že si příště otevře svůj plán a uvidí badge — není to push/e-mail, to je pozdější práce (viz `Notifikační systém` v technických dluzích).
-- **Zahájení nové adaptace (mezikrok, dokud neexistuje admin konzole):** `scripts/seed-adaptation.js --config <json> [--dry-run]` — idempotentně založí Firebase Auth účty (e-mail+heslo, bez Workspace) + `users/{uid}` dokumenty pro nováčka a jmenované role, a založí `adaptations` dokument ze šablony. Config shape viz `scripts/seed-adaptation.example.json`.
+- **Zahájení nové adaptace:** ⛔ **`scripts/seed-adaptation.js` už nepoužívat** — nováčka + adaptaci zakládat přes admin konzoli (`/admin/lide.html`, checkbox „Zahájit rovnou Adaptaci“). Skript zakládá jen `users/{uid}` a Auth účet, **nezaloží `users/{slug}` ani claim `slug`**, takže takový člověk se dostane do Adaptace, ale sdílený login (Návštěvnost, Dovolená…) ho nepustí (`claimError=1`). Přesně to potkalo Jana Vodičku (2026-09). Skript zůstává v repu jen kvůli historii.
+- **Oprava starých účtů ze skriptu:** v admin konzoli vyplnit „Přidat člověka“ se stejným e-mailem (adaptaci **nezaškrtávat**) — `onboardEmployee` pozná starý účet a propojí ho (založí `users/{slug}` s existujícím `uid`, nastaví claim `slug` a dočasné heslo `ZmenSiHeslo`), rozběhnutá adaptace zůstává beze změny. Pak člověku poslat heslo a odkaz na `/login.html`. Původní heslo do Adaptace přestane platit. **Čeká na propojení (po nasazení):** Jan Vodička (Pardubice, Designér, manažerka Barbora Syrová), Petra Hindráková, Kateřina Kounovská, Pavel Blacký, Karolína Šrámková, Yvetta Hrubá — u všech 6 vychází z kódu, že nemají `users/{slug}`, v produkci ale ověřené není.
 - **Stav:** Fáze 1 (MVP, obě šablony) ✅ · Fáze 2–4 otevřené (admin konzole na zahájení adaptace přes UI stále chybí — seed skript je jen mezikrok). **Auth byl v kódu hotový, ale Firebase Authentication service samotný nebyl v projektu zapnutý až do 2026-07-16** (zjištěno při bootstrapu Dovolené) — do té doby přes Adaptaci nikdy neproběhlo přihlášení mimo demo mód (`?demo=1`). Teď je zapnutý (Email/Password provider), takže by měla fungovat i reálná přihlášení — nebylo ale zatím ověřeno na účtu založeném přes `seed-adaptation.js`.
 - **Reálně založené adaptace (týdenní šablona):** Petra Hindráková (Hradec Králové + Pardubice), Kateřina Kounovská, Pavel Blacký (oba Praha), Karolína Šrámková, Yvetta Hrubá (obě Brno) — všech 5 s nástupem 13.7.2026; Jan Vodička (Pardubice) s nástupem 3.8.2026. Manažer podle studia (mapování z `docs/architektura.md`, org chart pro Dovolenou): Praha/Brno → Jakub Krčmarik, Hradec/Pardubice → Barbora Syrová. Buddy: Kateřina a Pavel → Marek Kopřiva, Petra → Naty Pokorná, Karolína → Valerie, Yvetta → Marek Hořčík, Jan → Marek Kopřiva.
 - **⚠️ Past k opakování:** Barbora Syrová měla dřív duplicitní Auth účet na chybný e-mail `barca.syrova@koupelny-syrovy.cz` (zkratka jména místo celého "Barbora") — používal se v `roles.manager` u Petřiny adaptace, dokud nebyl smazán jako osiřelý. Správný, jediný platný účet je `barbora.syrova@koupelny-syrovy.cz`. Při zakládání dalších lidí vždy ověřit celé jméno v e-mailu, ne zkratku/přezdívku.
@@ -117,7 +118,7 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 
 ### 6. Sdílený platformový login
 - **Účel:** Jedno přihlášení (e-mail + heslo) napříč celou platformou místo samostatné login stránky pro každý modul.
-- **Login:** `public/login.html` (kořen) — e-mail/heslo, „Zapomenuté heslo?“ (sendPasswordResetEmail), `?redirect=` návrat na cílovou stránku (výchozí bez redirectu: `/dovolena/dovolena.html`, jediný modul, co login zatím používá)
+- **Login:** `public/login.html` (kořen) — e-mail/heslo, „Zapomenuté heslo?“ (už neposílá e-mail, který nedochází — řekne, ať se člověk obrátí na manažera/admina, ten mu heslo resetuje v admin konzoli), `?redirect=` návrat na cílovou stránku (výchozí bez redirectu: `/dovolena/dovolena.html`, jediný modul, co login zatím používá)
 - **Vynucená změna hesla:** `public/change-password.html` + pole `users/{slug}.mustChangePassword` (boolean) — `requireAuth()` na něj přesměruje dřív, než pustí kamkoliv dál. Firestore rules dovolují vlastníkovi shodit tohle pole z `true` na `false` a nic jiného v `users/{slug}` (`request.auth.token.slug == slug`, `affectedKeys().hasOnly(['mustChangePassword'])`).
 - **Sdílená logika:** `public/shared/auth-common.js` (Firebase init, `requireAuth`, `getUserSlug`, `getUserBySlug`, toast/date helpery) + `public/shared/shared.css` (stejné vizuální komponenty jako `adaptace.css`, samostatná kopie)
 - **Identita:** custom claim `slug` na Firebase Auth účtu = ID dokumentu v `users/{slug}` — Firestore rules ho čtou přes `request.auth.token.slug` bez dalšího dotazu
@@ -133,6 +134,9 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 - **Účel:** Jedna admin stránka pro přidání nového člověka do evidence Návštěvnosti (a volitelně rovnou zahájení Adaptace v jedné akci) a pro jeho deaktivaci, až skončí — bez nutnosti Firebase/GCP přístupu nebo lokálního spuštění skriptu. Řeší přímo problém, který předtím vynucoval ruční `node` skripty s gcloud přihlášením pro každého nového člověka.
 - **Stránka:** `public/admin/lide.html` — přístup jen pro `platformRole` `hr`/`admin`, jinak redirect na `/login.html`. Formulář "Přidat člověka" (adresářová pole + volitelně checkbox "Zahájit rovnou adaptaci" s výběrem manažera/data nástupu/rolí) a tabulka lidí s tlačítkem "Deaktivovat".
 - **Cloud Functions:** `functions/index.js` — `onboardEmployee` a `offboardEmployee` (`onCall`, v2, `europe-central2`; první `onCall` funkce v projektu, dosud existoval jen Storage trigger `konvertujHeic`). Zápis do `users` jde jen odsud (Firestore rules mají `allow create: if false`), volající musí mít `platformRole` `hr`/`admin` na svém `users/{slug}` dokumentu (`requireAdminCaller`). `onboardEmployee` validuje povinná pole i existenci `managerSlug`/rolí, zamítne duplicitní e-mail (`already-exists`), založí Auth účet se sdíleným heslem `ZmenSiHeslo` + `mustChangePassword:true` (stejný vzor jako `seed-users-auth.js`) a volitelně i `adaptations` dokument (šablonu `phases`/`ongoingCategories` počítá klient přes `buildWeeklyProgress` z `adaptace-common.js`, funkce jen ukládá hotové). `offboardEmployee` nastaví `active:false`, zablokuje Auth účet a případnou aktivní adaptaci přepne na `status:'ended'` — **nikdy nemaže**, historie (Dovolená, CX, Realizace) zůstává navázaná.
+- **Reset hesla:** tlačítko „Reset hesla“ u každého aktivního člověka → `resetEmployeePassword` (`onCall`, stejná `requireAdminCaller` brána) nastaví `ZmenSiHeslo` + `mustChangePassword:true`, zneplatní stará přihlášení (`revokeRefreshTokens`) a doplní chybějící identitu (claim `slug`, `uid` v `users/{slug}`), kdyby byl účet nedokončený. Nejde na vlastní účet volajícího ani na deaktivovaného. Tohle je dnes jediná cesta k obnově hesla (e-mail nedochází).
+- **Propojení starých účtů z Adaptace:** `onboardEmployee` při existujícím Auth účtu bez claimu `slug` a bez `users/{slug}` nevrací `already-exists`, ale účet propojí (viz modul Adaptace). Vrací `linkedLegacy: true`. Pokud má člověk rozběhnutou adaptaci a admin zaškrtne i novou, odmítne to (`failed-precondition`).
+- **Pozor:** admin konzole zakládá (i propojuje) lidi vždy jako `active: true`, takže se objeví ve výběru „Obchodník“ v Návštěvnosti.
 - **Nové pole `users/{slug}.platformRole`** (`employee`/`supervisor`/`hr`/`admin`, nepovinné) — určuje oprávnění v appce (kdo smí do admin konzole, kdo potvrzuje cíle v Adaptaci). Nastaveno zatím jen šesti stávajícím adminům/manažerům (`scripts/backfill-admin-platform-role.js`, jednorázově) a nově zakládaným lidem přes `onboardEmployee`.
 - **Fázový přístup k dvojí identitě (vědomé rozhodnutí, ne dokončená migrace):** Adaptace historicky vede samostatný `users/{uid}` dokument s polem `role` (viz past u modulu Adaptace výše) — **6 lidí uprostřed živé 90denní adaptace** (Kateřina, Pavel, Karolína, Yvetta, Petra + jejich manažeři) na něm zůstává beze změny, aby se nesahalo na živá data pod časovým tlakem. Firestore rules (`legacyRole()`/`slugRole()`/`userRole()` v `firestore.rules`) i klientský kód (`getUserProfile` v `adaptace-common.js`, dotazy v `tym.html`/`muj-plan.html`/`login.html`) proto zkouší **obě cesty**: nejdřív `slug` claim + `platformRole`, při jeho absenci spadnou na starý `uid` + `role`. Podobně `adaptations.roles.{key}` má u starých záznamů klíč `uid`, u nových (přes admin konzoli) klíč `slug` — obojí rules podporují. Zpětné domigrování těch 6 lidí na jednotnou identitu zůstává otevřený, neurgentní úklid (viz technické dluhy).
 - **Ověřeno end-to-end 2026-08-07/08** (bez použití reálných hesel — přes dočasný QA test účet smazaný po testu): onboarding bez i s adaptací (`phases`/`roles.manager.slug` správně), zamítnutí duplicitního e-mailu, zamítnutí volání od ne-admina, offboarding (deaktivace, zablokování loginu, `status:'ended'` na adaptaci, zmizení z dropdownu Návštěvnosti), Firestore rules dual-path (zaměstnanec čte vlastní adaptaci, cizí je mu zamítnuta) — vše přes přímé HTTP volání funkcí a Firestore REST API s reálným Firebase ID tokenem, protože GUI test přes Browser pane cestou vypadl (viz past níže).
@@ -156,7 +160,7 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 | 🟡 Střední | Zpětně domigrovat 6 lidí z Adaptace (`users/{uid}` + starý `roles.{key}.uid`) na jednotnou `users/{slug}` identitu — dnes běží přes dual-path fallback v rules i klientu (viz modul Admin konzole), funkční, ale ne uklizené. Vyžaduje doplnit chybějící adresářová pole (telefon, pozice) u 5 z nich, co dosud nemají slug dokument vůbec. | Adaptace |
 | 🔴 Vysoká | **Bezpečnostní audit** — projít a rozhodnout prioritizaci opravy všech otevřených bezpečnostních děr napříč platformou. Podrobný inventář viz sekce `Bezpečnostní audit` níže — je jich víc, než kolik pokryjí jednotlivé řádky téhle tabulky, a část se nastřádala i z tohoto sezení (org policy výjimka, širší role na Cloud Function service accountu). | Všechny moduly |
 | 🟢 Nízká | Manažer se o nové kolizi ke schválení dozví jen když sám navštíví `dovolena-schvaleni.html` — bez notifikace (e-mail/push), spadá pod obecný dluh "Notifikační systém" níže | Dovolená |
-| 🟡 Střední | Sdílený login běží na dočasném společném heslu (`ZmenSiHeslo` + vynucená změna) místo bezpečnějších individuálních — Firebase e-mail (`sendPasswordResetEmail`/`accounts:sendOobCode`) nedošel ani na firemní doménu, ani na kontrolní adresu mimo firmu, příčina nedohledána. Než se doručování opraví (vlastní ověřená odesílací doména / transakční e-mailová služba), zůstává bezpečnostní okno, dokud si každý heslo sám nezmění. | Sdílený login |
+| 🟡 Střední | Sdílený login běží na dočasném společném heslu (`ZmenSiHeslo` + vynucená změna) místo bezpečnějších individuálních. Obnova hesla se dočasně řeší přes „Reset hesla“ v admin konzoli (od 2026-09). Firebase e-mail (`sendPasswordResetEmail`/`accounts:sendOobCode`) nedošel ani na firemní doménu, ani na kontrolní adresu mimo firmu, příčina nedohledána. Než se doručování opraví (vlastní ověřená odesílací doména / transakční e-mailová služba), zůstává bezpečnostní okno, dokud si každý heslo sám nezmění. | Sdílený login |
 | 🟢 Nízká | Migrovat Adaptace na sdílený platformový login (dnes vlastní `adaptace/login.html`) — dovršilo by to sjednocení identity započaté u Admin konzole (viz dluh výše) | Adaptace, Sdílený login |
 | 🟡 Střední | URL struktura je dnes nekonzistentní (Návštěvnost a login v kořeni, ostatní moduly v podsložkách typu `/dovolena/`, `/adaptace/`, `/admin/`) a matoucí. Chceme do toho sáhnout a zároveň připravit **rozcestníkovou úvodní stránku po loginu** pro lidi s přístupem do víc modulů — dnešní `resolveTarget()` v `login.html` jen hádá JEDEN cíl (Adaptace vs. Dovolená) podle toho, jestli má člověk aktivní adaptaci, což pro někoho s přístupem do víc věcí (např. admina) nedává smysl. Souvisí i s plánovanou "Vlastní doménou" v roadmapě. | Sdílený login |
 | 🟢 Nízká | Notifikační systém (připomínky vyplňování) | Všechny moduly |
@@ -229,41 +233,35 @@ Existující dluh (viz tabulka) — většina týmu pořád běží na společn�
 | Úkol | Nástroj |
 |------|---------|
 | Architektura, zadání, rozhodnutí, dokumentace | Claude chat (projekt Koupelny Syrový) |
-| Psaní kódu, refaktoring, práce v souborech | Claude Code |
-| Deploy, git, Firebase CLI, skripty | Warp |
-| Debugování logiky v kódu | Claude Code |
+| Psaní kódu, refaktoring, commit + push | Claude Code — **v cloudu** (claude.ai/code, aplikace Claude) nebo lokálně na Macu |
+| Deploy na Firebase (`firebase deploy`) | **Jen lokálně na Macu** — cloud session nemá přihlášení k Firebase ani gcloud |
 | Nová feature (zadání → implementace) | Claude chat → Claude Code |
 
-### Časté příkazy (Warp)
+### Postup jedné změny (cloud → produkce)
+
+1. **Claude Code v cloudu** udělá změnu, ověří ji (syntaxe, lokální prohlížeč přes `python3 -m http.server --directory public`), **commitne a pushne** na svou větev `claude/...`. Commit patří ke každé hotové změně, ne až k deployi.
+2. **Merge do `main`** — přes pull request na GitHubu (Claude ho na požádání založí), nebo lokálně.
+3. **Deploy z Macu** (Claude Code lokálně, nebo terminál):
+   ```bash
+   cd /Users/martinpaclik/Desktop/koupelny-navstevnost
+   git checkout main && git pull
+   npx firebase-tools login --reauth        # jen když vyprší přihlášení (deploy spadne na auth)
+   npx firebase-tools deploy --only functions,hosting
+   # nová onCall funkce: ověřit, že jde zavolat (viz Známé pasti níže)
+   curl -s -X POST https://europe-central2-koupelny-navstevnost.cloudfunctions.net/<funkce> -H 'Content-Type: application/json' -d '{"data":{}}'
+   #   {"error":{"status":"UNAUTHENTICATED"...}} = OK · HTML 403 = chybí Cloud Run Invoker
+   ```
+4. Po deployi zapsat do CLAUDE.md, co je nasazené (a co ještě čeká na ruční krok v UI).
+
+### ⚠️ Past: necommitnutá práce na Macu
+Cloud session vidí jen to, co je **pushnuté na GitHubu**. Změny rozpracované lokálně a necommitnuté v cloudu neexistují — Claude v cloudu je napíše znovu a při `git pull` na Macu pak vznikne konflikt. **Před přechodem do cloudu lokální práci vždy commitnout a pushnout** (nebo ji zahodit `git stash`/`git checkout .`, pokud ji cloud dělá znovu).
+
+### Další příkazy (lokálně)
 
 ```bash
-# Přejít do projektu
-cd /Users/martinpaclik/Desktop/koupelny-navstevnost
-
-# Deploy všeho
-firebase deploy
-
-# Deploy jen hosting
-firebase deploy --only hosting
-
-# Deploy jen functions
-firebase deploy --only functions
-
-# Deploy jen Firestore rules
-firebase deploy --only firestore:rules
-
-# Lokální emulátory
-firebase emulators:start
-
-# Reauth pokud vyprší token
-firebase login --reauth
-
-# Spustit Claude Code v projektu
-claude
-
-# Pozor: worktree trap
-# Soubory z git worktree zkopírovat do hlavního projektu před deployem:
-cp -r worktree/public/adaptace public/adaptace
+npx firebase-tools deploy --only firestore:rules   # jen pravidla
+npx firebase-tools deploy --only storage           # Storage rules
+npx firebase-tools emulators:start                 # lokální emulátory
 ```
 
 ---
@@ -323,7 +321,11 @@ Všechny tři jsou samostatné bloky, potkaly se za sebou v tomhle pořadí — 
 
 ---
 
-*Poslední aktualizace: 2026-08-27 — první dvě kritické položky z bezpečnostního auditu opravené: Návštěvnost, CX a Realizace (+ jejich 3 dashboardy, celkem 6 stránek) dostaly stejnou přihlašovací bránu jako Dovolená/Adaptace/Admin konzole (`requireAuth()` ze `shared/auth-common.js`), a `firestore.rules` byla zpřísněna — `entries`/`cx_feedback`/`realizace`/`daily_summaries`/`users` teď vyžadují přihlášení na čtení i zápis místo `allow read/write: if true`. Datový model se neměnil (obchodník/parta/"Terka" zůstávají výběr ze seznamu, ne vázané na přihlášeného uživatele) — brána je čistě na úrovni stránky. Dvě stránky (`index.html`+`app.js`, `dashboard.html`+`dashboard.js`) používají classic script + `window.db` bridge vzor (auth gate v inline module scriptu nastaví `window.db` až po přihlášení, `app.js`/`dashboard.js` se nemění); zbylé 4 mají celou logiku v jednom module scriptu, tam šla úprava přímo. Všech 6 stránek sjednoceno na `shared/auth-common.js`, smazán duplikovaný inline Firebase config, co každá stránka měla svůj vlastní. Ověřeno end-to-end přes dočasné QA test účty (smazané po testu): nepřihlášený dostane redirect na login i `PERMISSION_DENIED` z REST API, přihlášený má formuláře i dashboardy funkční beze změny (reálný zápis do `entries` otestován a smazán). Zbývající body bezpečnostního auditu (Storage pravidla, sdílené heslo, service account scope, org policy) viz sekce "Bezpečnostní audit" — samostatný úkol.
+*Poslední aktualizace: 2026-09-26 — admin konzole umí resetovat heslo (`resetEmployeePassword`) a propojit staré účty ze `seed-adaptation.js` přes formulář „Přidat člověka“ (`onboardEmployee`), login místo nefunkčního e-mailu odkazuje na admina. Commitnuto z cloudové session, **zatím nenasazeno** — deploy functions + hosting z Macu, pak propojit Jana Vodičku a dalších 5 nováčků (viz modul Adaptace). Přepsaná sekce „Vývojářské flow“: kód a commit v cloudu, deploy lokálně.
+
+---
+
+*Předchozí aktualizace: 2026-08-27 — první dvě kritické položky z bezpečnostního auditu opravené: Návštěvnost, CX a Realizace (+ jejich 3 dashboardy, celkem 6 stránek) dostaly stejnou přihlašovací bránu jako Dovolená/Adaptace/Admin konzole (`requireAuth()` ze `shared/auth-common.js`), a `firestore.rules` byla zpřísněna — `entries`/`cx_feedback`/`realizace`/`daily_summaries`/`users` teď vyžadují přihlášení na čtení i zápis místo `allow read/write: if true`. Datový model se neměnil (obchodník/parta/"Terka" zůstávají výběr ze seznamu, ne vázané na přihlášeného uživatele) — brána je čistě na úrovni stránky. Dvě stránky (`index.html`+`app.js`, `dashboard.html`+`dashboard.js`) používají classic script + `window.db` bridge vzor (auth gate v inline module scriptu nastaví `window.db` až po přihlášení, `app.js`/`dashboard.js` se nemění); zbylé 4 mají celou logiku v jednom module scriptu, tam šla úprava přímo. Všech 6 stránek sjednoceno na `shared/auth-common.js`, smazán duplikovaný inline Firebase config, co každá stránka měla svůj vlastní. Ověřeno end-to-end přes dočasné QA test účty (smazané po testu): nepřihlášený dostane redirect na login i `PERMISSION_DENIED` z REST API, přihlášený má formuláře i dashboardy funkční beze změny (reálný zápis do `entries` otestován a smazán). Zbývající body bezpečnostního auditu (Storage pravidla, sdílené heslo, service account scope, org policy) viz sekce "Bezpečnostní audit" — samostatný úkol.
 
 ---
 

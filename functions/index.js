@@ -187,13 +187,46 @@ exports.onboardEmployee = onCall({ region: "europe-central2" }, async (request) 
   } catch (err) {
     if (err.code !== "auth/user-not-found") throw err;
   }
+
+  // Starý účet z Adaptace (scripts/seed-adaptation.js) má Auth účet i users/{uid},
+  // ale žádný users/{slug} ani claim `slug` — sdílený login ho proto nepustí dál.
+  // Takový účet nezamítáme jako duplicitu, ale propojíme: založíme users/{slug}
+  // se stávajícím uid. Jeho rozběhnutá adaptace (employeeId = uid) zůstává beze
+  // změny, Firestore rules umí obě cesty (viz legacyRole()/mySlug()).
+  let linkedLegacy = false;
   if (existingAuthUser) {
-    throw new HttpsError("already-exists", `Účet s e-mailem ${email} už existuje.`);
+    const uid = existingAuthUser.uid;
+    const slugDocs = await db.collection("users").where("uid", "==", uid).get();
+    const hasSlugDoc = slugDocs.docs.some((d) => d.id !== uid);
+    if (existingAuthUser.customClaims?.slug || hasSlugDoc) {
+      throw new HttpsError("already-exists", `Účet s e-mailem ${email} už existuje.`);
+    }
+    if (adaptation) {
+      const running = await db
+        .collection("adaptations")
+        .where("employeeId", "==", uid)
+        .where("status", "in", ["active", "paused"])
+        .get();
+      if (!running.empty) {
+        throw new HttpsError(
+          "failed-precondition",
+          `${name} už má rozběhnutou adaptaci — nechte "Zahájit rovnou Adaptaci" nezaškrtnuté.`
+        );
+      }
+    }
+    linkedLegacy = true;
   }
 
   const slug = await generateUniqueSlug(db, name);
-  const authUser = await auth.createUser({ email, password: SHARED_PASSWORD, displayName: name });
-  await auth.setCustomUserClaims(authUser.uid, { slug });
+  let authUser;
+  if (linkedLegacy) {
+    authUser = await auth.updateUser(existingAuthUser.uid, { password: SHARED_PASSWORD });
+    await auth.setCustomUserClaims(authUser.uid, { ...(existingAuthUser.customClaims || {}), slug });
+    await auth.revokeRefreshTokens(authUser.uid);
+  } else {
+    authUser = await auth.createUser({ email, password: SHARED_PASSWORD, displayName: name });
+    await auth.setCustomUserClaims(authUser.uid, { slug });
+  }
 
   const userDoc = {
     name,
@@ -232,7 +265,73 @@ exports.onboardEmployee = onCall({ region: "europe-central2" }, async (request) 
     adaptationId = ref.id;
   }
 
-  return { slug, uid: authUser.uid, adaptationId };
+  return { slug, uid: authUser.uid, adaptationId, linkedLegacy };
+});
+
+// Reset hesla z admin konzole — náhrada za "Zapomenuté heslo?" e-mailem, který
+// nedochází (viz technický dluh v CLAUDE.md). Nastaví dočasné sdílené heslo,
+// vynutí jeho změnu při dalším přihlášení a odhlásí všechna stará přihlášení.
+// Cestou doplní chybějící identitu (uid v users/{slug}, claim `slug`), kdyby
+// byl účet nedokončený — stejně jako propojení v onboardEmployee.
+exports.resetEmployeePassword = onCall({ region: "europe-central2" }, async (request) => {
+  const callerSlug = await requireAdminCaller(request);
+
+  const db = getFirestore();
+  const auth = getAuth();
+  const { slug } = request.data || {};
+
+  if (!slug || typeof slug !== "string") {
+    throw new HttpsError("invalid-argument", "Chybí slug.");
+  }
+  if (slug === callerSlug) {
+    throw new HttpsError("failed-precondition", "Vlastní heslo si změňte po přihlášení, ne přes reset.");
+  }
+
+  const userRef = db.collection("users").doc(slug);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new HttpsError("not-found", `users/${slug} neexistuje.`);
+  }
+  const user = userSnap.data();
+  if (!user.active) {
+    throw new HttpsError("failed-precondition", "Deaktivovanému člověku heslo neresetujeme.");
+  }
+
+  let authUser = null;
+  if (user.uid) {
+    try {
+      authUser = await auth.getUser(user.uid);
+    } catch (err) {
+      if (err.code !== "auth/user-not-found") throw err;
+    }
+  }
+  if (!authUser && user.email) {
+    try {
+      authUser = await auth.getUserByEmail(user.email);
+    } catch (err) {
+      if (err.code !== "auth/user-not-found") throw err;
+    }
+  }
+  if (!authUser) {
+    throw new HttpsError("not-found", `${user.name ?? slug} nemá přihlašovací účet.`);
+  }
+
+  const existingSlug = authUser.customClaims?.slug;
+  if (existingSlug && existingSlug !== slug) {
+    throw new HttpsError(
+      "failed-precondition",
+      `Účet ${authUser.email} patří k users/${existingSlug}, ne k users/${slug}.`
+    );
+  }
+
+  await auth.updateUser(authUser.uid, { password: SHARED_PASSWORD });
+  if (!existingSlug) {
+    await auth.setCustomUserClaims(authUser.uid, { ...(authUser.customClaims || {}), slug });
+  }
+  await auth.revokeRefreshTokens(authUser.uid);
+  await userRef.set({ uid: authUser.uid, mustChangePassword: true }, { merge: true });
+
+  return { slug, uid: authUser.uid, identityRepaired: !existingSlug || user.uid !== authUser.uid };
 });
 
 exports.offboardEmployee = onCall({ region: "europe-central2" }, async (request) => {

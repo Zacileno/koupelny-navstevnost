@@ -34,18 +34,6 @@
             <button type="button" class="login-link" id="forgotLink">Zapomenuté heslo?</button>
         </div>
 
-        <form id="resetForm" style="display:none;">
-            <div class="form-group">
-                <label for="resetEmail">E-mail</label>
-                <input type="email" id="resetEmail" placeholder="vas@email.cz" autocomplete="email" required>
-            </div>
-            <button type="submit" class="btn btn--primary btn--login" id="resetBtn">
-                Poslat odkaz na nastavení hesla
-            </button>
-        </form>
-        <div class="login-links" id="backLinkWrap" style="display:none;">
-            <button type="button" class="login-link" id="backLink">Zpět na přihlášení</button>
-        </div>
     </div>
 </div>
 
@@ -62,11 +50,6 @@ const infoEl  = document.getElementById('loginInfo');
 const loginForm = document.getElementById('loginForm');
 const loginBtn  = document.getElementById('loginBtn');
 const forgotLink = document.getElementById('forgotLink');
-
-const resetForm = document.getElementById('resetForm');
-const resetBtn  = document.getElementById('resetBtn');
-const backLinkWrap = document.getElementById('backLinkWrap');
-const backLink  = document.getElementById('backLink');
 
 const params = new URLSearchParams(window.location.search);
 const explicitRedirect = params.get('redirect');
@@ -185,48 +168,10 @@ loginForm.addEventListener('submit', async (e) => {
     }
 });
 
+// Obnova hesla e-mailem (sendPasswordResetEmail) nedochází — viz technický dluh
+// v CLAUDE.md. Heslo místo toho resetuje HR/admin v admin konzoli (/admin/lide.html).
 forgotLink.addEventListener('click', () => {
-    hideMessages();
-    cardTitle.textContent = 'Zapomenuté heslo';
-    cardSubtitle.textContent = 'Pošleme vám odkaz na nastavení nového hesla';
-    loginForm.style.display = 'none';
-    forgotLink.parentElement.style.display = 'none';
-    resetForm.style.display = 'block';
-    backLinkWrap.style.display = 'flex';
-    document.getElementById('resetEmail').value = document.getElementById('email').value;
-});
-
-backLink.addEventListener('click', () => {
-    hideMessages();
-    cardTitle.textContent = 'Přihlášení';
-    cardSubtitle.textContent = 'Interní platforma';
-    resetForm.style.display = 'none';
-    backLinkWrap.style.display = 'none';
-    loginForm.style.display = 'block';
-    forgotLink.parentElement.style.display = 'flex';
-});
-
-resetForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    hideMessages();
-    resetBtn.disabled = true;
-    resetBtn.textContent = 'Odesílám…';
-
-    const email = document.getElementById('resetEmail').value.trim();
-
-    try {
-        const { auth } = await initFirebase();
-        const { sendPasswordResetEmail } = await import(`${CDN}/firebase-auth.js`);
-        await sendPasswordResetEmail(auth, email);
-    } catch (err) {
-        // Necháváme stejnou odpověď i při auth/user-not-found, ať nejde zjistit,
-        // jestli daný e-mail v systému existuje.
-        if (err.code !== 'auth/user-not-found') console.error(err);
-    }
-
-    resetBtn.disabled = false;
-    resetBtn.textContent = 'Poslat odkaz na nastavení hesla';
-    showInfo('Pokud e-mail existuje v systému, přijde na něj odkaz na nastavení hesla.');
+    showInfo('Ozvěte se svému manažerovi nebo administrátorovi. Heslo vám resetuje, dostanete dočasné heslo a po přihlášení si nastavíte nové.');
 });
 </script>
 </body>

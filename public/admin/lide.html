@@ -188,6 +188,7 @@ let session = null;
 let db = null;
 let onboardEmployee = null;
 let offboardEmployee = null;
+let resetEmployeePassword = null;
 let allUsers = [];
 
 async function init() {
@@ -209,6 +210,7 @@ async function init() {
     const functions = getFunctions(fb.app, 'europe-central2');
     onboardEmployee = httpsCallable(functions, 'onboardEmployee');
     offboardEmployee = httpsCallable(functions, 'offboardEmployee');
+    resetEmployeePassword = httpsCallable(functions, 'resetEmployeePassword');
 
     document.getElementById('fStartAdaptation').addEventListener('change', (e) => {
         document.getElementById('adaptationFields').style.display = e.target.checked ? 'block' : 'none';
@@ -268,7 +270,9 @@ function renderPeopleList() {
                 ? '<span class="badge badge--confirmed">aktivní</span>'
                 : '<span class="badge badge--cancelled">neaktivní</span>'}</td>
             <td class="actions-cell">${u.active
-                ? `<button class="btn btn--danger btn--sm" data-offboard="${u.slug}">Deaktivovat</button>`
+                ? `${u.slug !== session.slug
+                    ? `<button class="btn btn--ghost btn--sm" data-reset="${u.slug}">Reset hesla</button> `
+                    : ''}<button class="btn btn--danger btn--sm" data-offboard="${u.slug}">Deaktivovat</button>`
                 : ''}</td>
             <td class="text-dim">${DEPARTMENT_LABELS[u.department] ?? u.department ?? '—'}</td>
             <td class="text-dim">${(u.studios ?? []).map(s => STUDIO_LABELS[s] ?? s).join(', ') || '—'}</td>
@@ -290,6 +294,27 @@ function renderPeopleList() {
     list.querySelectorAll('[data-offboard]').forEach(btn => {
         btn.addEventListener('click', () => onOffboard(btn.dataset.offboard, btn));
     });
+    list.querySelectorAll('[data-reset]').forEach(btn => {
+        btn.addEventListener('click', () => onResetPassword(btn.dataset.reset, btn));
+    });
+}
+
+async function onResetPassword(slug, btn) {
+    const person = allUsers.find(u => u.slug === slug);
+    const name = person?.name ?? slug;
+    if (!confirm(`Resetovat heslo pro ${name}? Dostane dočasné heslo ZmenSiHeslo, všude se odhlásí a při dalším přihlášení si musí nastavit nové.`)) {
+        return;
+    }
+    btn.disabled = true;
+    try {
+        await resetEmployeePassword({ slug });
+        alert(`Hotovo. Pošlete ${name} dočasné heslo ZmenSiHeslo a ať se přihlásí na ${window.location.origin}/login.html — hned si nastaví vlastní.`);
+    } catch (err) {
+        console.error(err);
+        showToast(err.message || 'Reset hesla se nezdařil');
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 async function onOffboard(slug, btn) {
@@ -377,7 +402,11 @@ async function onSubmit(e) {
         }
 
         const result = await onboardEmployee(payload);
-        showToast(`${payload.name} přidán(a) (${result.data.slug})`, 'success');
+        if (result.data.linkedLegacy) {
+            alert(`${payload.name} měl(a) starý účet z Adaptace — propojen(o) se sdíleným loginem, rozběhnutá adaptace zůstává. Pošlete dočasné heslo ZmenSiHeslo, původní heslo už neplatí.`);
+        } else {
+            showToast(`${payload.name} přidán(a) (${result.data.slug})`, 'success');
+        }
         e.target.reset();
         document.getElementById('adaptationFields').style.display = 'none';
         await loadUsers();

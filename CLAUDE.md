@@ -237,6 +237,16 @@ Existující dluh (viz tabulka) — většina týmu pořád běží na společn�
 | Deploy na Firebase (`firebase deploy`) | **Jen lokálně na Macu** — cloud session nemá přihlášení k Firebase ani gcloud |
 | Nová feature (zadání → implementace) | Claude chat → Claude Code |
 
+### Pravidlo verzí — víc zařízení (dva Macy + cloud)
+**GitHub (`origin/main`) je jediná platná verze.** Oba notebooky i cloudová session jsou jen pracovní kopie a o sobě navzájem vědí jen přes GitHub. Claude Code tohle dodržuje sám, bez připomínání:
+
+1. **Na začátku každé session** (na kterémkoliv zařízení) jako první krok: `git status` + `git fetch origin`. Pokud je lokálně necommitnutá/nepushnutá práce, **zastavit se a ukázat ji uživateli** (commitnout, nebo zahodit — rozhoduje on), jinak `git pull`. Teprve pak sahat na kód.
+2. **Na konci každé hotové změny** commit + push — i když se nenasazuje. Nepushnutá změna pro druhé zařízení ani cloud neexistuje.
+3. **Před každým `firebase deploy`** znovu `git pull` a ověřit, že HEAD = `origin/main` a working tree je čistý. `firebase deploy` nasazuje obsah složky, ne GitHub — deploy ze zastaralé kopie tiše přepíše produkci starší verzí (a vrátí už opravené chyby).
+4. Kontrola „nic nevisí": `git status` hlásí `nothing to commit, working tree clean` a `up to date with 'origin/main'`.
+
+Přihlášení na novém zařízení: GitHub přes `gh auth login` + `gh auth setup-git` (uloží se do Klíčenky, žádné ručně generované tokeny), Firebase přes `npx firebase-tools login`.
+
 ### Postup jedné změny (cloud → produkce)
 
 1. **Claude Code v cloudu** udělá změnu, ověří ji (syntaxe, lokální prohlížeč přes `python3 -m http.server --directory public`), **commitne a pushne** na svou větev `claude/...`. Commit patří ke každé hotové změně, ne až k deployi.

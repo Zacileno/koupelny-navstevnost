@@ -321,7 +321,7 @@ Všechny tři jsou samostatné bloky, potkaly se za sebou v tomhle pořadí — 
 
 ---
 
-*Poslední aktualizace: 2026-09-26 — admin konzole umí resetovat heslo (`resetEmployeePassword`) a propojit staré účty ze `seed-adaptation.js` přes formulář „Přidat člověka“ (`onboardEmployee`), login místo nefunkčního e-mailu odkazuje na admina. Commitnuto z cloudové session, **zatím nenasazeno** — deploy functions + hosting z Macu, pak propojit Jana Vodičku a dalších 5 nováčků (viz modul Adaptace). Přepsaná sekce „Vývojářské flow“: kód a commit v cloudu, deploy lokálně.
+*Poslední aktualizace: 2026-09-26 — admin konzole umí resetovat heslo (`resetEmployeePassword`) a propojit staré účty ze `seed-adaptation.js` přes formulář „Přidat člověka“ (`onboardEmployee`), login místo nefunkčního e-mailu odkazuje na admina. Commitnuto z cloudové session, **nasazeno 2026-09-26** (functions + hosting z Macu, `resetEmployeePassword` ověřena `curl` — vrací `UNAUTHENTICATED`, Cloud Run Invoker je OK; spolu s tím nasazena i dřív necommitnutá oprava zacyklení loginu při chybějícím `slug` claimu). Zbývá propojit Jana Vodičku a dalších 5 nováčků (viz modul Adaptace). Přepsaná sekce „Vývojářské flow“: kód a commit v cloudu, deploy lokálně.
 
 ---
 

@@ -194,6 +194,9 @@ Existující dluh (viz tabulka) — většina týmu pořád běží na společn�
 1. **Cloud Functions runtime service account** (`<project-number>-compute@developer.gserviceaccount.com`) dostal role **Cloud Datastore User** + **Firebase Authentication Admin** na úrovni **celého projektu**, ne jen pro `onboardEmployee`/`offboardEmployee`. Znamená to, že cokoliv, co poběží pod týmž default service accountem (i budoucí funkce), bude mít stejně široký přístup k celé Firestore databázi a celému Firebase Auth, ne jen k `users`/`adaptations`. Bezpečnější varianta: dedikovaný service account jen pro tyhle dvě funkce s užšími rolemi.
 2. **Org policy `iam.allowedPolicyMemberDomains`** (Domain Restricted Sharing) byla pro tenhle projekt přepnuta na **"Override → Replace → Allow all"**, aby šlo `onCall` funkce vůbec zveřejnit (Cloud Run vyžaduje `allUsers` jako invoker). To je organizační bezpečnostní default, co se tímhle krokem vypnul — stojí za ověření, jestli to neotevírá i jiné služby/IAM bindings v projektu veřejnosti, ne jen tyhle dvě funkce.
 
+### Automatický deploy z GitHubu — nový přístup do projektu (2026-10-01, vědomě přidáno)
+Service account `github-deployer` smí nasazovat hosting a functions (`firebasehosting.admin`, `cloudfunctions.admin`, `iam.serviceAccountUser` jen na default Compute SA + read-only role). Kdo může pushnout do `main` (= kdo má zápis do GitHub repa), může tím nasadit libovolný kód na produkci, včetně Cloud Functions běžících pod Compute SA s přístupem k celé Firestore a Auth (viz bod 1 výše). **Zabezpečení je tedy teď stejně silné jako přístup ke GitHub repu** — držet tam minimum lidí s 2FA. Omezení, která drží: žádný klíč (WIF, token jen pro tohle repo + větev `main`, PR z forku ani jiná větev se nepřihlásí), deployer nemá `run.admin` (nezveřejní novou službu), nemá rules ani IAM. Případné zpřísnění do budoucna: GitHub branch protection na `main` (povinný PR) nebo GitHub Environment s ručním schválením deploye.
+
 ### Co naopak vypadá v pořádku (ověřeno, ne jen předpokládáno)
 - `users/{slug}` update rule je úzce scoped (vlastník smí shodit jen `mustChangePassword`, nic jiného)
 - `vacations` update rule pro schvalování kolizí je úzce scoped (jen `status`/`resolvedBy`/`resolvedAt`, jen přiřazený manažer/CEO)
@@ -237,7 +240,8 @@ Existující dluh (viz tabulka) — většina týmu pořád běží na společn�
 |------|---------|
 | Architektura, zadání, rozhodnutí, dokumentace | Claude chat (projekt Koupelny Syrový) |
 | Psaní kódu, refaktoring, commit + push | Claude Code — **v cloudu** (claude.ai/code, aplikace Claude) nebo lokálně na Macu |
-| Deploy na Firebase (`firebase deploy`) | **Jen lokálně na Macu** — cloud session nemá přihlášení k Firebase ani gcloud |
+| Deploy hosting + functions | **Automaticky z GitHubu** po každém pushi do `main` (`.github/workflows/deploy.yml`) — viz „Automatický deploy" níže. Ruční `firebase deploy` z Macu jen jako záloha |
+| Deploy Firestore/Storage rules | **Ručně z Macu**, vědomě (`--only firestore:rules` / `--only storage`) — automat je záměrně nenasazuje |
 | Nová feature (zadání → implementace) | Claude chat → Claude Code |
 
 ### Pravidlo verzí — víc zařízení (dva Macy + cloud)
@@ -250,11 +254,18 @@ Existující dluh (viz tabulka) — většina týmu pořád běží na společn�
 
 Přihlášení na novém zařízení: GitHub přes `gh auth login` + `gh auth setup-git` (uloží se do Klíčenky, žádné ručně generované tokeny), Firebase přes `npx firebase-tools login`.
 
+### Automatický deploy (GitHub Actions)
+- **Každý push do `main` = deploy hosting + functions na produkci.** Na zařízení nezáleží (Mac, druhý Mac, cloud session, merge PR na GitHubu) a nepotřebuje se žádné Firebase přihlášení. Průběh: GitHub → záložka **Actions** → „Deploy na Firebase" (ručně spustit tamtéž přes „Run workflow").
+- **Přihlášení bez klíče:** Workload Identity Federation — pool `github`, provider `github-actions` omezený na repo `Zacileno/koupelny-navstevnost` a větev `refs/heads/main`; vystupuje jako service account `github-deployer@koupelny-navstevnost.iam.gserviceaccount.com`. Jednorázové nastavení: `scripts/setup-github-deploy.sh` (spouští člověk po `gcloud auth login`, idempotentní). ID provideru a SA jsou v GitHub repo **Variables** (`GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`), ne secrets.
+- **Po deployi workflow sám ověří** `curl`em, že `onboardEmployee`/`offboardEmployee`/`resetEmployeePassword` vrací `UNAUTHENTICATED` (= Cloud Run Invoker OK). Novou `onCall` funkci do toho seznamu v `deploy.yml` přidat.
+- **⚠️ Nová `onCall` funkce:** deployer má `roles/run.viewer`, ne `run.admin`, takže **neumí nastavit `allUsers` invoker** na nové Cloud Run službě — první deploy nové funkce může projít, ale funkce nepůjde zavolat (kontrola ve workflow spadne). Pak invoker nastavit ručně v Cloud Run konzoli (viz Známé pasti) — vědomě, ať automat nemůže sám zveřejňovat služby.
+- **Workflow soubory (`.github/workflows/`)** jde pushnout jen s GitHub tokenem se scope `workflow` — na novém zařízení `gh auth refresh -s workflow`.
+
 ### Postup jedné změny (cloud → produkce)
 
 1. **Claude Code v cloudu** udělá změnu, ověří ji (syntaxe, lokální prohlížeč přes `python3 -m http.server --directory public`), **commitne a pushne** na svou větev `claude/...`. Commit patří ke každé hotové změně, ne až k deployi.
 2. **Merge do `main`** — přes pull request na GitHubu (Claude ho na požádání založí), nebo lokálně.
-3. **Deploy z Macu** (Claude Code lokálně, nebo terminál):
+3. **Deploy proběhne sám** po merge do `main` (viz Automatický deploy výše) — zkontrolovat záložku Actions. Ruční deploy z Macu jen jako záloha, když Actions nefungují:
    ```bash
    cd /Users/martinpaclik/Desktop/koupelny-navstevnost
    git checkout main && git pull

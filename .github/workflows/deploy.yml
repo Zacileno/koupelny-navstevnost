@@ -1,0 +1,75 @@
+# Automatický deploy na Firebase po každém pushi do main.
+#
+# Přihlášení do Google Cloud přes Workload Identity Federation — GitHub dostane
+# krátkodobý token jen pro tenhle repozitář a větev main, nikde neleží žádný
+# klíč. Jednorázové nastavení na straně GCP: scripts/setup-github-deploy.sh.
+#
+# Nasazuje jen hosting + functions (stejně jako ruční flow v CLAUDE.md).
+# Firestore/Storage rules záměrně ne — ty se dál nasazují ručně a vědomě.
+
+name: Deploy na Firebase
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Dva rychle po sobě jdoucí pushe nesmí nasazovat souběžně — druhý počká.
+concurrency:
+  group: firebase-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write   # nutné pro Workload Identity Federation
+
+env:
+  PROJECT_ID: koupelny-navstevnost
+  FIREBASE_TOOLS_VERSION: 15.15.0
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Instalace závislostí functions
+        run: npm ci
+        working-directory: functions
+
+      - name: Přihlášení do Google Cloud (bez klíče)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Deploy hosting + functions
+        run: >
+          npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
+          deploy --only hosting,functions
+          --project ${{ env.PROJECT_ID }}
+          --non-interactive
+
+      # Stejná kontrola jako v CLAUDE.md (Známé pasti): onCall funkce musí jít
+      # zavolat. UNAUTHENTICATED = request prošel až do naší funkce, tedy OK.
+      - name: Ověření, že onCall funkce jdou zavolat
+        run: |
+          fail=0
+          for fn in onboardEmployee offboardEmployee resetEmployeePassword; do
+            body=$(curl -s -X POST "https://europe-central2-${PROJECT_ID}.cloudfunctions.net/$fn" \
+              -H 'Content-Type: application/json' -d '{"data":{}}')
+            if echo "$body" | grep -q '"UNAUTHENTICATED"'; then
+              echo "✔ $fn"
+            else
+              echo "✘ $fn — chybí Cloud Run Invoker? Odpověď: ${body:0:200}"
+              fail=1
+            fi
+          done
+          exit $fail

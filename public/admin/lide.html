@@ -18,6 +18,27 @@
             gap: 6px;
             font-weight: normal;
         }
+        /* shared.css roztahuje každý input ve .form-group na 100 % — checkboxy
+           pak stojí samy uprostřed řádku nad svým popiskem. */
+        .form-group input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+            flex: none;
+        }
+        .studio-checks label,
+        label.check-label {
+            text-transform: none;
+            letter-spacing: normal;
+            font-size: 13px;
+            color: var(--text);
+            white-space: nowrap;
+        }
+        label.check-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+        }
         .section-header label {
             font-weight: normal;
             display: flex;
@@ -27,14 +48,64 @@
         input[type="date"] {
             color-scheme: dark;
         }
-        .table td.truncate {
-            max-width: 220px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        /* Admin tabulka potřebuje víc místa než výchozích 960 px z shared.css —
+           jinak se pozice usekává a tabulka se posouvá do strany. Formulář
+           naopak zůstává úzký, ať se dobře čte. */
+        .page-wrap--wide {
+            max-width: 1280px;
         }
+        .onboard-card {
+            max-width: 760px;
+            margin-bottom: 8px;
+        }
+        .people-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .people-toolbar input[type="search"] {
+            flex: 1 1 260px;
+            max-width: 360px;
+            padding: 9px 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font: inherit;
+            font-size: 13px;
+        }
+        .people-toolbar input[type="search"]:focus {
+            outline: none;
+            border-color: var(--blue);
+        }
+        .people-count {
+            font-size: 12px;
+        }
+        .people-toolbar label {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+        }
+        .table td.person-cell .person-email {
+            display: block;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+        .table td.wrap {
+            white-space: normal;
+            min-width: 200px;
+        }
+        .table th.actions-cell,
         .table td.actions-cell {
             white-space: nowrap;
+            text-align: right;
+        }
+        .table td.actions-cell .btn + .btn {
+            margin-left: 6px;
         }
     </style>
 </head>
@@ -48,12 +119,17 @@
     </div>
 </div>
 
-<div class="page-wrap">
+<div class="page-wrap page-wrap--wide">
     <div class="section-header">
-        <h1>Přidat člověka</h1>
+        <h1>Lidé</h1>
+        <button type="button" class="btn btn--primary btn--sm" id="toggleFormBtn">+ Přidat člověka</button>
     </div>
 
-    <div class="card">
+    <div class="card onboard-card" id="onboardCard" style="display:none;">
+        <div class="section-header" style="padding-top:0;">
+            <h2>Přidat člověka</h2>
+            <button type="button" class="btn btn--ghost btn--sm" id="closeFormBtn">Zavřít</button>
+        </div>
         <form id="onboardForm">
             <div class="form-row">
                 <div class="form-group">
@@ -125,7 +201,7 @@
             </div>
 
             <div class="form-group">
-                <label><input type="checkbox" id="fStartAdaptation"> Zahájit rovnou Adaptaci (Projektový specialista/designér, 90 dní)</label>
+                <label class="check-label"><input type="checkbox" id="fStartAdaptation"> Zahájit rovnou Adaptaci (Projektový specialista/designér, 90 dní)</label>
             </div>
 
             <div id="adaptationFields" style="display:none;">
@@ -164,8 +240,9 @@
         </form>
     </div>
 
-    <div class="section-header">
-        <h2>Lidé</h2>
+    <div class="people-toolbar">
+        <input type="search" id="peopleSearch" placeholder="Hledat jméno, e-mail, pozici, studio…" autocomplete="off">
+        <span class="people-count text-dim" id="peopleCount"></span>
         <label class="text-dim"><input type="checkbox" id="showInactive"> zobrazit i neaktivní</label>
     </div>
 
@@ -223,6 +300,9 @@ async function init() {
     startDateInput.addEventListener('click', openDatePicker);
     document.querySelector('label[for="fStartDate"]').addEventListener('click', openDatePicker);
     document.getElementById('showInactive').addEventListener('change', renderPeopleList);
+    document.getElementById('peopleSearch').addEventListener('input', renderPeopleList);
+    document.getElementById('toggleFormBtn').addEventListener('click', () => setFormOpen(true));
+    document.getElementById('closeFormBtn').addEventListener('click', () => setFormOpen(false));
     document.getElementById('onboardForm').addEventListener('submit', onSubmit);
 
     await loadUsers();
@@ -240,6 +320,17 @@ async function loadUsers() {
     renderPeopleList();
 }
 
+function setFormOpen(open) {
+    document.getElementById('onboardCard').style.display = open ? 'block' : 'none';
+    document.getElementById('toggleFormBtn').style.display = open ? 'none' : '';
+    if (open) document.getElementById('fName').focus();
+}
+
+// Hledání bez ohledu na diakritiku a velikost písmen („sramkova“ najde „Šrámková“).
+function normalize(text) {
+    return (text ?? '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
 function fillPersonSelect(selectId, people) {
     const select = document.getElementById(selectId);
     const placeholder = select.querySelector('option');
@@ -255,28 +346,41 @@ function fillPersonSelect(selectId, people) {
 
 function renderPeopleList() {
     const showInactive = document.getElementById('showInactive').checked;
+    const needle = normalize(document.getElementById('peopleSearch').value.trim());
     const list = document.getElementById('peopleList');
-    const people = allUsers.filter(u => showInactive || u.active);
+    const visible = allUsers.filter(u => showInactive || u.active);
+    const people = needle
+        ? visible.filter(u => normalize([
+            u.name, u.email, u.position,
+            DEPARTMENT_LABELS[u.department],
+            ...(u.studios ?? []).map(st => STUDIO_LABELS[st] ?? st),
+        ].join(' ')).includes(needle))
+        : visible;
+
+    document.getElementById('peopleCount').textContent = needle
+        ? `${people.length} z ${visible.length}`
+        : `${visible.length} ${visible.length === 1 ? 'člověk' : visible.length < 5 ? 'lidé' : 'lidí'}`;
 
     if (people.length === 0) {
-        list.innerHTML = '<div class="empty-state">Nikdo tu není.</div>';
+        list.innerHTML = `<div class="empty-state">${needle ? 'Nic neodpovídá hledání.' : 'Nikdo tu není.'}</div>`;
         return;
     }
 
     const rows = people.map(u => `
         <tr>
-            <td>${escapeHtml(u.name ?? '')}</td>
+            <td class="person-cell">${escapeHtml(u.name ?? '')}${u.email
+                ? `<span class="person-email text-dim">${escapeHtml(u.email)}</span>` : ''}</td>
+            <td class="text-dim wrap">${escapeHtml(u.position ?? '') || '—'}</td>
+            <td class="text-dim">${DEPARTMENT_LABELS[u.department] ?? u.department ?? '—'}</td>
+            <td class="text-dim">${(u.studios ?? []).map(st => STUDIO_LABELS[st] ?? st).join(', ') || '—'}</td>
             <td>${u.active
                 ? '<span class="badge badge--confirmed">aktivní</span>'
                 : '<span class="badge badge--cancelled">neaktivní</span>'}</td>
             <td class="actions-cell">${u.active
                 ? `${u.slug !== session.slug
-                    ? `<button class="btn btn--ghost btn--sm" data-reset="${u.slug}">Reset hesla</button> `
+                    ? `<button class="btn btn--ghost btn--sm" data-reset="${u.slug}">Reset hesla</button>`
                     : ''}<button class="btn btn--danger btn--sm" data-offboard="${u.slug}">Deaktivovat</button>`
                 : ''}</td>
-            <td class="text-dim">${DEPARTMENT_LABELS[u.department] ?? u.department ?? '—'}</td>
-            <td class="text-dim">${(u.studios ?? []).map(s => STUDIO_LABELS[s] ?? s).join(', ') || '—'}</td>
-            <td class="text-dim truncate" title="${escapeHtml(u.position ?? '')}">${escapeHtml(u.position ?? '')}</td>
         </tr>
     `).join('');
 
@@ -284,7 +388,7 @@ function renderPeopleList() {
         <div class="table-wrap">
             <table class="table">
                 <thead>
-                    <tr><th>Jméno</th><th>Stav</th><th></th><th>Oddělení</th><th>Studia</th><th>Pozice</th></tr>
+                    <tr><th>Jméno</th><th>Pozice</th><th>Oddělení</th><th>Studia</th><th>Stav</th><th class="actions-cell">Akce</th></tr>
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
@@ -409,6 +513,7 @@ async function onSubmit(e) {
         }
         e.target.reset();
         document.getElementById('adaptationFields').style.display = 'none';
+        setFormOpen(false);
         await loadUsers();
     } catch (err) {
         console.error(err);

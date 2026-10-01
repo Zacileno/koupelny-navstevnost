@@ -62,10 +62,14 @@ for role in \
 done
 
 # Functions běží pod default Compute SA — deployer ho musí smět "použít",
-# ale jen tenhle jeden účet, ne všechny v projektu.
-retry gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --project "$PROJECT_ID" \
-  --member "serviceAccount:$SA_EMAIL" --role roles/iam.serviceAccountUser --quiet >/dev/null
-echo "   roles/iam.serviceAccountUser jen na $RUNTIME_SA"
+# ale jen tyhle konkrétní účty, ne všechny v projektu. App Engine default SA
+# firebase-tools před deployem functions kontroluje taky (iam.serviceAccounts.ActAs),
+# i když ho naše 2nd gen funkce nepoužívají — bez něj deploy spadne hned na startu.
+for runtime_sa in "$RUNTIME_SA" "${PROJECT_ID}@appspot.gserviceaccount.com"; do
+  retry gcloud iam service-accounts add-iam-policy-binding "$runtime_sa" --project "$PROJECT_ID" \
+    --member "serviceAccount:$SA_EMAIL" --role roles/iam.serviceAccountUser --quiet >/dev/null
+  echo "   roles/iam.serviceAccountUser jen na $runtime_sa"
+done
 
 echo "→ Workload Identity Pool + provider"
 gcloud iam workload-identity-pools describe "$POOL" --project "$PROJECT_ID" --location global >/dev/null 2>&1 \

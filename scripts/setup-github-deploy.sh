@@ -40,7 +40,9 @@ retry() {
 }
 
 echo "→ API"
-gcloud services enable iamcredentials.googleapis.com sts.googleapis.com --project "$PROJECT_ID"
+# cloudbilling: firebase-tools si před deployem functions ověřuje Blaze tarif —
+# bez zapnutého API spadne v CI na 403 (lokálně s uživatelským loginem ne).
+gcloud services enable iamcredentials.googleapis.com sts.googleapis.com cloudbilling.googleapis.com --project "$PROJECT_ID"
 
 echo "→ Service account $SA_EMAIL"
 gcloud iam service-accounts describe "$SA_EMAIL" --project "$PROJECT_ID" >/dev/null 2>&1 \

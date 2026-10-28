@@ -7,6 +7,21 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 
 ---
 
+## Strategický kontext 2027 (stav 2026-10-28)
+
+Platforma se má přizpůsobit nové obchodní strategii (detail mimo repo: `STRATEGIE-2027.md` v Project Knowledge, zdroj `KS_Marketingova_strategie_2027_B2C_B2B` — pracovní verze, neschváleno):
+
+- **Od ledna 2027 studia na rezervaci.** Měří se kampaň → rezervace → schůzka → zakázka a počet návštěv „na blind“ (bez rezervace).
+- **SYROVÝ PRO** — B2B program pro architekty/designéry/stavební firmy/developery: rezervace studia partnerem (Model A), studio + specialista (B), specialista na stavbě (C). Pilot I–III 2027 v 1–2 studiích.
+- **Rezervační systém:** v listopadu 2026 beze změn (Reservanto + Raynet). Vlastní rezervační systém na platformě je jen nabídka na prosinec 2026, **nerozhodnuto**.
+
+**Pravidla pro vývoj, dokud se nerozhodne:**
+- Nic nestavět na předpokladu vlastního rezervačního systému.
+- Externí partneři (SYROVÝ PRO) by byli první lidé mimo firmu s účtem → před tím dořešit Bezpečnostní audit (hlavně Storage) a role (Fáze 3 roadmapy se tím posouvá dopředu).
+- Raynet/Pohoda dál bez integrace — leady z kampaní se na platformu nenapojují bez výslovného rozhodnutí.
+
+---
+
 ## Technický stack
 
 - **Firebase projekt:** `koupelny-navstevnost` (Blaze plán)
@@ -41,7 +56,7 @@ Interní platforma pro Koupelny Syrový. Cílem do 2027/28 je kompletní vlastn�
 - **Login:** ✅ sdílený platformový login (`requireAuth()` z `shared/auth-common.js`) — přidáno 2026-08-27, viz technické dluhy níže
 - **Formulář:** `public/index.html` + `public/app.js`
 - **Dashboard:** `public/dashboard.html` + `public/dashboard.js`
-- **Firestore kolekce:** `visits`
+- **Firestore kolekce:** `entries`
 - **Pomocné:** kolekce `users` — firemní adresář (28 lidí, všechna oddělení), ne jen obchodníci. Struktura dokumentu: ID = slug (např. `barbora-lojkaskova`).
   - `name` (string), `active` (boolean) — **`active` řídí jen viditelnost ve výběru "Obchodník" na formuláři Návštěvnosti** (16 aktivních = obchodní tým), neznamená obecně "zaměstnaný ve firmě"
   - `department` (string) — `sales` / `accounting` / `operations` / `realization` / `marketing`
@@ -357,6 +372,8 @@ Zjištěno 2026-09-11 při zakládání `pristupy@zacileno.eu` (viz technické d
 - [x] Sdílený platformový login (nasazeno, celý tým má účet; dočasné sdílené heslo místo e-mailu, viz technický dluh; Adaptace zatím na svém vlastním loginu — sjednocení je pozdější úklid)
 - [ ] Notifikace a připomínky
 - [ ] Vlastní doména
+- [ ] Návštěvnost: rozlišit návštěvu s rezervací vs. bez rezervace („na blind“) — podklad pro vyhodnocení listopadu 2026 a model rezervací od 01/2027
+- [ ] (Nerozhodnuto) Modul: Rezervace — vlastní rezervační systém místo Reservanta, vč. rezervací studia pro partnery SYROVÝ PRO
 
 ### Fáze 3 — Platforma (2027–2028)
 - [ ] Vědomá rozhodnutí o napojení na Pohodu / Raynet
@@ -365,7 +382,11 @@ Zjištěno 2026-09-11 při zakládání `pristupy@zacileno.eu` (viz technické d
 
 ---
 
-*Poslední aktualizace: 2026-09-26 — admin konzole umí resetovat heslo (`resetEmployeePassword`) a propojit staré účty ze `seed-adaptation.js` přes formulář „Přidat člověka“ (`onboardEmployee`), login místo nefunkčního e-mailu odkazuje na admina. Commitnuto z cloudové session, **nasazeno 2026-09-26** (functions + hosting z Macu, `resetEmployeePassword` ověřena `curl` — vrací `UNAUTHENTICATED`, Cloud Run Invoker je OK; spolu s tím nasazena i dřív necommitnutá oprava zacyklení loginu při chybějícím `slug` claimu). Zbývá propojit Jana Vodičku a dalších 5 nováčků (viz modul Adaptace). Přepsaná sekce „Vývojářské flow“: kód a commit v cloudu, deploy lokálně.
+*Poslední aktualizace: 2026-10-28 — doplněn Strategický kontext 2027 (rezervace od 01/2027, SYROVÝ PRO, rezervační systém nerozhodnut) a dvě položky do Fáze 2 roadmapy. Bez změny kódu.*
+
+---
+
+*Předchozí aktualizace: 2026-09-26 — admin konzole umí resetovat heslo (`resetEmployeePassword`) a propojit staré účty ze `seed-adaptation.js` přes formulář „Přidat člověka“ (`onboardEmployee`), login místo nefunkčního e-mailu odkazuje na admina. Commitnuto z cloudové session, **nasazeno 2026-09-26** (functions + hosting z Macu, `resetEmployeePassword` ověřena `curl` — vrací `UNAUTHENTICATED`, Cloud Run Invoker je OK; spolu s tím nasazena i dřív necommitnutá oprava zacyklení loginu při chybějícím `slug` claimu). Zbývá propojit Jana Vodičku a dalších 5 nováčků (viz modul Adaptace). Přepsaná sekce „Vývojářské flow“: kód a commit v cloudu, deploy lokálně.
 
 ---
 

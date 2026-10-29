@@ -602,9 +602,12 @@
                 <div class="filter-group">
                     <label for="filterSluzba">Služba</label>
                     <select id="filterSluzba">
-                        <option value="">Zboží + realizace</option>
+                        <option value="">Všechny služby</option>
                         <option value="zboží">Zboží</option>
                         <option value="realizace">Realizace</option>
+                        <option value="průběh realizace">Průběh realizace</option>
+                        <option value="schůzka">Schůzka</option>
+                        <option value="prohra">Prohra</option>
                     </select>
                 </div>
                 <div class="filter-group">
@@ -688,7 +691,7 @@
                 </div>
             </div>
             <div class="section-block">
-                <h2>Zboží vs. Realizace</h2>
+                <h2>Doporučení dle služby</h2>
                 <div class="bar-chart" id="chartSluzba">
                     <div class="loading">Načítám…</div>
                 </div>
@@ -1264,7 +1267,7 @@ function render() {
     renderBarChart('chartObchodnik', obchodnikData, 10);
 
     // Průměrné doporučení dle služby
-    const sluzbyItems = ['Zboží','Realizace'].map(s => {
+    const sluzbyItems = ['Zboží','Realizace','Průběh realizace','Schůzka','Prohra'].map(s => {
         const items = data.filter(r =>
             (r.sluzba||'').toLowerCase() === s.toLowerCase() &&
             typeof r.doporuceni === 'number' && r.doporuceni >= 1 && r.doporuceni <= 10

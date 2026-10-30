@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leady — Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../shared/shared.css">
+    <style>
+        .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+        .kpi__value { font-size: 26px; font-weight: 300; line-height: 1.1; }
+        .kpi__label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+        .kpi__sub { font-size: 11px; color: var(--muted); }
+
+        .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+        .tab { background: transparent; border: 1px solid var(--border); color: var(--text-dim); border-radius: 20px; padding: 6px 14px; font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer; }
+        .tab--active { border-color: var(--blue); color: var(--blue); background: var(--blue-dim); }
+
+        .lead-card { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: start; }
+        .lead-card__phone { font-size: 16px; font-weight: 700; color: var(--text); text-decoration: none; }
+        .lead-card__phone:hover { color: var(--blue); }
+        .lead-card__meta { font-size: 12px; color: var(--text-dim); }
+        .lead-card__note { font-size: 12px; color: var(--muted); grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .lead-card__side { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+
+        .sla { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+        .sla--ok { background: var(--success-dim); color: var(--success); }
+        .sla--soon { background: var(--warning-dim); color: var(--warning); }
+        .sla--late { background: var(--danger-dim); color: var(--danger); }
+        .badge--channel { background: var(--blue-dim); color: var(--blue); }
+        .badge--gold { background: var(--gold-dim); color: var(--gold); }
+
+        /* Modal */
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-start; justify-content: center; z-index: 200; overflow-y: auto; padding: 30px 12px; }
+        .modal-backdrop.open { display: flex; }
+        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-width: 620px; padding: 22px; position: relative; }
+        .modal__close { position: absolute; top: 12px; right: 14px; background: none; border: none; color: var(--text-dim); font-size: 22px; cursor: pointer; }
+        .modal h3 { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); margin: 18px 0 10px; }
+        .info-grid { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 13px; }
+        .info-grid dt { color: var(--muted); }
+        .info-grid dd { word-break: break-word; }
+        .attempt { font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+        .attempt:last-child { border-bottom: none; }
+        .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .hint-warn { font-size: 12px; color: var(--warning); margin-bottom: 10px; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Leady z webu</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="userName">…</span>
+        <button class="btn-logout" id="logoutBtn">Odhlásit</button>
+    </div>
+</div>
+
+<div class="page-wrap">
+    <div class="kpi-row" id="kpis"></div>
+
+    <div class="tabs">
+        <button class="tab tab--active" data-tab="open">Ke zpracování</button>
+        <button class="tab" data-tab="closed">Uzavřené</button>
+    </div>
+
+    <div id="list"><div class="loader"><div class="spinner"></div>Načítám…</div></div>
+</div>
+
+<div class="modal-backdrop" id="modal">
+    <div class="modal">
+        <button class="modal__close" id="modalClose" aria-label="Zavřít">×</button>
+        <div id="modalBody"></div>
+    </div>
+</div>
+
+<script type="module">
+import { requireAuth, signOutUser, initFirebase, CDN, showToast, isDemoMode } from '../shared/auth-common.js';
+import { addWorkingMinutes, RETRY_SLA_MIN, MAX_ATTEMPTS } from './leady-sla.js';
+
+const { collection, query, orderBy, limit, onSnapshot, getDocs, doc, updateDoc, arrayUnion, Timestamp } =
+    await import(`${CDN}/firebase-firestore.js`);
+
+const RESULT_LABELS = {
+    no_answer: 'Nezvedá',
+    voicemail: 'Hlasová schránka',
+    callback: 'Zavolat jindy',
+    reached: 'Dovoláno',
+};
+const OUTCOME_LABELS = {
+    meeting: 'Schůzka domluvena',
+    info: 'Informace poskytnuta',
+    will_call: 'Ozve se sám',
+    out_of_scope: 'Mimo nabídku',
+    unreachable: 'Nedovoláno',
+    spam: 'Spam / test / duplicita',
+    legacy: 'Historie ze sheetu',
+};
+// Výsledky, u kterých proběhl hovor — při uzavření se zapíše i pokus "Dovoláno".
+const REACHED_OUTCOMES = ['meeting', 'info', 'will_call', 'out_of_scope'];
+const CHANNEL_LABELS = { google: 'Google', meta: 'Meta', bing: 'Bing', seznam: 'Seznam', direct: 'Přímo / neznámý' };
+const STUDIO_LABELS = { praha: 'Praha', brno: 'Brno', hradec: 'Hradec Králové', pardubice: 'Pardubice' };
+const RAYNET_RE = /^https:\/\/([a-z0-9-]+\.)*raynet\.cz\//i;
+
+let session = null;
+let db = null;
+let leads = [];
+let usersData = {};
+let activeTab = 'open';
+let openLeadId = null;
+let openLeadVersion = null;
+
+const DEMO = isDemoMode();
+
+async function init() {
+    if (DEMO) {
+        session = { slug: 'demo', profile: { name: 'Demo' } };
+        document.getElementById('userName').textContent = 'Demo mód';
+        usersData = { demo: { name: 'Demo' }, 'marek-horcik': { name: 'Marek Hořčík', email: 'x@x.cz' } };
+    } else {
+        session = await requireAuth('/login.html');
+        if (!session) return;
+        document.getElementById('userName').textContent = session.profile?.name ?? session.user.email;
+        document.getElementById('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+
+        ({ db } = await initFirebase());
+        const usersSnap = await getDocs(collection(db, 'users'));
+        usersData = Object.fromEntries(usersSnap.docs.map(d => [d.id, d.data()]));
+    }
+
+    document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => {
+        activeTab = btn.dataset.tab;
+        document.querySelectorAll('.tab').forEach(b => b.classList.toggle('tab--active', b === btn));
+        render();
+    }));
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+
+    if (DEMO) {
+        leads = demoLeads();
+        onLeadsChanged();
+    } else {
+        // Živě — nový lead se ve frontě objeví sám, bez obnovení stránky.
+        onSnapshot(query(collection(db, 'leads'), orderBy('receivedAt', 'desc'), limit(500)), snap => {
+            leads = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            onLeadsChanged();
+        }, err => {
+            console.error(err);
+            document.getElementById('list').innerHTML = '<div class="empty-state">Leady se nepodařilo načíst.</div>';
+        });
+    }
+
+    // SLA štítky stárnou i bez změny dat.
+    setInterval(render, 60000);
+}
+
+function onLeadsChanged() {
+    render();
+    // Detail překreslit jen když se změnil právě otevřený lead — jinak by
+    // příchod jiného leadu smazal rozepsanou poznámku.
+    const current = leads.find(l => l.id === openLeadId);
+    if (openLeadId && (!current || current.updatedAt?.toMillis() !== openLeadVersion)) renderModal();
+}
+
+function demoLeads() {
+    const ago = min => Timestamp.fromMillis(Date.now() - min * 60000);
+    const base = { source: 'web-popup', status: 'open', attempts: [], email: '', name: '', paid: true, utm: {}, studiosGuess: [], duplicateOfId: null };
+    return [
+        { ...base, id: 'd1', phone: '+420737857175', receivedAt: ago(30), slaDueAt: ago(-90), nextActionAt: ago(-90), updatedAt: ago(30),
+          channel: 'google', utm: { campaign: 'Search_Koupelny_Brno' }, landingPath: '/koupelna-na-klic/', studiosGuess: ['brno'] },
+        { ...base, id: 'd2', phone: '+420724537864', receivedAt: ago(400), slaDueAt: ago(200), nextActionAt: ago(200), updatedAt: ago(400),
+          channel: 'meta', utm: { campaign: 'Lead_koupelny' }, landingPath: '/rezervace-konzultace/' },
+        { ...base, id: 'd3', phone: '+420602352473', name: 'Jan Novák', receivedAt: ago(3000), slaDueAt: ago(2900), nextActionAt: ago(-30), updatedAt: ago(100),
+          firstAttemptAt: ago(2950), channel: 'bing', landingPath: '/sluzby/', studiosGuess: ['hradec', 'pardubice'],
+          attempts: [{ at: ago(2950), by: 'demo', result: 'no_answer', note: '' }, { at: ago(1500), by: 'demo', result: 'callback', note: 'Ozvat se kolem 10. — je v práci' }] },
+        { ...base, id: 'd4', phone: '+420731984338', name: 'Adéla T.', receivedAt: ago(9000), slaDueAt: ago(8900), firstAttemptAt: ago(8950), updatedAt: ago(8000),
+          status: 'closed', outcome: 'meeting', closedAt: ago(8000), closedBy: 'demo', channel: 'google', landingPath: '/koupelna-na-klic/',
+          meeting: { studio: 'brno', at: ago(-2000), designerSlug: 'marek-horcik', raynetUrl: null },
+          attempts: [{ at: ago(8950), by: 'demo', result: 'reached', note: '' }] },
+    ];
+}
+
+// ── helpers ──
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str ?? '';
+    return div.innerHTML;
+}
+
+const toDate = (ts) => ts?.toDate?.() ?? (ts ? new Date(ts) : null);
+
+function fmtDateTime(ts) {
+    const d = toDate(ts);
+    if (!d) return '—';
+    return d.toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatPhone(p) {
+    const m = /^\+420(\d{3})(\d{3})(\d{3})$/.exec(p || '');
+    return m ? `${m[1]} ${m[2]} ${m[3]}` : (p || '');
+}
+
+function userName(slug) {
+    return usersData[slug]?.name ?? slug ?? '';
+}
+
+function slaChip(lead) {
+    const due = toDate(lead.nextActionAt);
+    if (!due) return '';
+    const diffMin = Math.round((due - new Date()) / 60000);
+    const label = lead.attempts?.length ? 'Další pokus' : '1. kontakt';
+    if (diffMin < 0) {
+        const late = -diffMin < 120 ? `${-diffMin} min` : `${Math.round(-diffMin / 60)} h`;
+        return `<span class="sla sla--late">${label}: po termínu ${late}</span>`;
+    }
+    const when = due.toDateString() === new Date().toDateString()
+        ? due.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })
+        : due.toLocaleString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `<span class="sla ${diffMin < 60 ? 'sla--soon' : 'sla--ok'}">${label} do ${when}</span>`;
+}
+
+function sourceLine(lead) {
+    const parts = [CHANNEL_LABELS[lead.channel] ?? lead.channel];
+    if (lead.utm?.campaign) parts.push(lead.utm.campaign);
+    if (lead.landingPath) parts.push(lead.landingPath);
+    return parts.filter(Boolean).join(' · ');
+}
+
+function studiosLine(lead) {
+    return (lead.studiosGuess || []).map(s => STUDIO_LABELS[s] ?? s).join(', ');
+}
+
+// ── přehled ──
+
+function renderKpis() {
+    const now = new Date();
+    const open = leads.filter(l => l.status === 'open');
+    const late = open.filter(l => toDate(l.nextActionAt) < now);
+    const since = new Date(now.getTime() - 30 * 86400000);
+    const recent = leads.filter(l => toDate(l.receivedAt) >= since && l.source !== 'import-sheet' && l.outcome !== 'spam');
+    const withAttempt = recent.filter(l => l.firstAttemptAt);
+    const inSla = withAttempt.filter(l => toDate(l.firstAttemptAt) <= toDate(l.slaDueAt));
+    const closed = recent.filter(l => l.status === 'closed');
+    const meetings = closed.filter(l => l.outcome === 'meeting');
+    const pct = (a, b) => b ? `${Math.round(a / b * 100)} %` : '—';
+
+    document.getElementById('kpis').innerHTML = `
+        <div class="kpi"><div class="kpi__label">Ke zpracování</div><div class="kpi__value">${open.length}</div></div>
+        <div class="kpi"><div class="kpi__label">Po termínu</div><div class="kpi__value ${late.length ? 'text-danger' : ''}">${late.length}</div></div>
+        <div class="kpi"><div class="kpi__label">Leadů / 30 dní</div><div class="kpi__value">${recent.length}</div></div>
+        <div class="kpi"><div class="kpi__label">1. kontakt v SLA</div><div class="kpi__value">${pct(inSla.length, withAttempt.length)}</div><div class="kpi__sub">${inSla.length} z ${withAttempt.length}</div></div>
+        <div class="kpi"><div class="kpi__label">Schůzka</div><div class="kpi__value text-gold">${pct(meetings.length, closed.length)}</div><div class="kpi__sub">${meetings.length} z ${closed.length} uzavřených</div></div>
+    `;
+    document.title = (late.length ? `(${late.length}) ` : '') + 'Leady — Koupelny Syrový';
+}
+
+function render() {
+    renderKpis();
+    const listEl = document.getElementById('list');
+
+    const items = activeTab === 'open'
+        ? leads.filter(l => l.status === 'open').sort((a, b) => toDate(a.nextActionAt) - toDate(b.nextActionAt))
+        : leads.filter(l => l.status === 'closed').sort((a, b) => (toDate(b.closedAt) ?? toDate(b.receivedAt)) - (toDate(a.closedAt) ?? toDate(a.receivedAt))).slice(0, 150);
+
+    if (items.length === 0) {
+        listEl.innerHTML = `<div class="empty-state">${activeTab === 'open' ? 'Nic ke zpracování 🎉' : 'Zatím žádné uzavřené leady.'}</div>`;
+        return;
+    }
+
+    listEl.innerHTML = '';
+    for (const lead of items) {
+        const lastAttempt = lead.attempts?.[lead.attempts.length - 1];
+        const card = document.createElement('div');
+        card.className = 'card card--clickable lead-card';
+        card.innerHTML = `
+            <div>
+                ${lead.phone
+                    ? `<a class="lead-card__phone" href="tel:${escapeHtml(lead.phone)}">${escapeHtml(formatPhone(lead.phone))}</a>`
+                    : `<span class="lead-card__phone">${escapeHtml(lead.email)}</span>`}
+                ${lead.name ? `<span class="text-dim"> · ${escapeHtml(lead.name)}</span>` : ''}
+                <div class="lead-card__meta">Přijato ${fmtDateTime(lead.receivedAt)} · ${escapeHtml(sourceLine(lead))}</div>
+            </div>
+            <div class="lead-card__side">
+                ${lead.status === 'open' ? slaChip(lead) : `<span class="badge ${lead.outcome === 'meeting' ? 'badge--gold' : 'badge--pending'}">${escapeHtml(OUTCOME_LABELS[lead.outcome] ?? lead.outcome)}</span>`}
+                <span class="lead-card__meta">${lead.attempts?.length ? `${lead.attempts.length}× voláno` : 'Zatím nevoláno'}${studiosLine(lead) ? ` · ${escapeHtml(studiosLine(lead))}` : ''}</span>
+                ${lead.duplicateOfId ? '<span class="badge badge--collision">Možná duplicita</span>' : ''}
+            </div>
+            ${lastAttempt?.note || lead.notes ? `<div class="lead-card__note">${escapeHtml(lastAttempt?.note || lead.notes)}</div>` : ''}
+        `;
+        // Klik na číslo = vytočit; klik jinam = detail.
+        card.addEventListener('click', e => { if (!e.target.closest('a')) openModal(lead.id); });
+        listEl.appendChild(card);
+    }
+}
+
+// ── detail ──
+
+function openModal(id) {
+    openLeadId = id;
+    renderModal();
+    document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() {
+    openLeadId = null;
+    document.getElementById('modal').classList.remove('open');
+}
+
+function designerOptions(selected) {
+    const people = Object.entries(usersData)
+        .filter(([, u]) => u.email && !u.external && u.active !== false)
+        .sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || '', 'cs'));
+    return '<option value="">— vyber —</option>' + people
+        .map(([slug, u]) => `<option value="${escapeHtml(slug)}" ${slug === selected ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('');
+}
+
+function studioOptions(selected) {
+    return '<option value="">— vyber —</option>' + Object.entries(STUDIO_LABELS)
+        .map(([k, v]) => `<option value="${k}" ${k === selected ? 'selected' : ''}>${v}</option>`).join('');
+}
+
+function toLocalInput(d) {
+    if (!d) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function renderModal() {
+    const lead = leads.find(l => l.id === openLeadId);
+    if (!lead) return closeModal();
+    openLeadVersion = lead.updatedAt?.toMillis() ?? null;
+    const body = document.getElementById('modalBody');
+    const isOpen = lead.status === 'open';
+    const failed = (lead.attempts || []).filter(a => a.result === 'no_answer' || a.result === 'voicemail').length;
+    const dup = lead.duplicateOfId ? leads.find(l => l.id === lead.duplicateOfId) : null;
+    const m = lead.meeting || {};
+
+    body.innerHTML = `
+        <div style="font-size:22px;font-weight:700;">
+            ${lead.phone ? `<a class="lead-card__phone" style="font-size:22px" href="tel:${escapeHtml(lead.phone)}">${escapeHtml(formatPhone(lead.phone))}</a>` : escapeHtml(lead.email)}
+        </div>
+        <div class="mt-4">${isOpen ? slaChip(lead) : `<span class="badge badge--confirmed">Uzavřeno: ${escapeHtml(OUTCOME_LABELS[lead.outcome] ?? lead.outcome)}</span>`}</div>
+
+        <h3>Kontakt</h3>
+        <div class="form-row">
+            <div class="form-group"><label>Jméno</label><input id="fName" value="${escapeHtml(lead.name)}"></div>
+            <div class="form-group"><label>E-mail</label><input id="fEmail" type="email" value="${escapeHtml(lead.email)}"></div>
+        </div>
+        <div class="form-group"><label>Poznámka k leadu</label><textarea id="fNotes" placeholder="Co zákazník řeší, kontext…">${escapeHtml(lead.notes)}</textarea></div>
+        <button class="btn btn--ghost btn--sm" id="saveContact">Uložit kontakt</button>
+
+        <h3>Odkud přišel</h3>
+        <dl class="info-grid">
+            <dt>Přijato</dt><dd>${fmtDateTime(lead.receivedAt)}</dd>
+            <dt>SLA 1. kontaktu</dt><dd>${fmtDateTime(lead.slaDueAt)}${lead.firstAttemptAt ? ` · první pokus ${fmtDateTime(lead.firstAttemptAt)}` : ''}</dd>
+            <dt>Kanál</dt><dd>${escapeHtml(CHANNEL_LABELS[lead.channel] ?? lead.channel)}${lead.paid ? ' (placené)' : ''}</dd>
+            ${lead.utm?.campaign ? `<dt>Kampaň</dt><dd>${escapeHtml(lead.utm.campaign)}</dd>` : ''}
+            <dt>Stránka</dt><dd>${escapeHtml(lead.landingPath || '—')}</dd>
+            ${studiosLine(lead) ? `<dt>Studio (odhad)</dt><dd>${escapeHtml(studiosLine(lead))}</dd>` : ''}
+            ${lead.duplicateOfId ? `<dt>Duplicita</dt><dd class="text-warning">Stejný kontakt přišel ${dup ? fmtDateTime(dup.receivedAt) : 'dříve'}${dup ? ` (${escapeHtml(dup.status === 'open' ? 'otevřený' : OUTCOME_LABELS[dup.outcome] ?? '')})` : ''}</dd>` : ''}
+        </dl>
+
+        <h3>Pokusy o kontakt</h3>
+        ${(lead.attempts || []).length === 0 ? '<div class="text-dim" style="font-size:13px">Zatím žádný.</div>' :
+            lead.attempts.map(a => `<div class="attempt"><strong>${escapeHtml(RESULT_LABELS[a.result] ?? a.result)}</strong>
+                <span class="text-dim"> · ${fmtDateTime(a.at)} · ${escapeHtml(userName(a.by))}</span>
+                ${a.note ? `<div class="text-dim">${escapeHtml(a.note)}</div>` : ''}</div>`).join('')}
+
+        ${isOpen ? `
+        <h3>Zapsat pokus</h3>
+        ${failed >= MAX_ATTEMPTS ? `<div class="hint-warn">Už ${failed} neúspěšné pokusy — zvaž uzavřít jako „Nedovoláno“.</div>` : ''}
+        <div class="form-group"><label>Poznámka k hovoru</label><textarea id="fAttemptNote" placeholder="Nepovinné"></textarea></div>
+        <div class="form-group hidden" id="callbackWrap"><label>Kdy zavolat znovu</label><input type="datetime-local" id="fCallback"></div>
+        <div class="btn-row">
+            <button class="btn btn--ghost btn--sm" data-attempt="no_answer">Nezvedá</button>
+            <button class="btn btn--ghost btn--sm" data-attempt="voicemail">Hlasová schránka</button>
+            <button class="btn btn--ghost btn--sm" id="callbackBtn">Zavolat jindy…</button>
+        </div>
+
+        <h3>Uzavřít lead</h3>
+        <div class="form-group"><label>Výsledek</label>
+            <select id="fOutcome">
+                <option value="">— vyber —</option>
+                ${Object.entries(OUTCOME_LABELS).filter(([k]) => k !== 'legacy').map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
+            </select>
+        </div>
+        <div id="meetingWrap" class="hidden">
+            <div class="form-row">
+                <div class="form-group"><label>Studio</label><select id="fStudio">${studioOptions((lead.studiosGuess || []).length === 1 ? lead.studiosGuess[0] : '')}</select></div>
+                <div class="form-group"><label>Termín schůzky</label><input type="datetime-local" id="fMeetingAt"></div>
+            </div>
+            <div class="form-group"><label>Kdo schůzku vede</label><select id="fDesigner">${designerOptions('')}</select></div>
+            <div class="form-group"><label>Odkaz na událost v Raynetu</label><input id="fRaynet" type="url" placeholder="https://app.raynet.cz/…"></div>
+        </div>
+        <div class="form-group"><label>Poznámka k výsledku</label><textarea id="fOutcomeNote" placeholder="Nepovinné"></textarea></div>
+        <button class="btn btn--primary" id="closeLeadBtn">Uzavřít lead</button>
+        ` : `
+        <h3>Výsledek</h3>
+        <dl class="info-grid">
+            <dt>Výsledek</dt><dd>${escapeHtml(OUTCOME_LABELS[lead.outcome] ?? lead.outcome)}</dd>
+            <dt>Uzavřeno</dt><dd>${fmtDateTime(lead.closedAt)}${lead.closedBy ? ` · ${escapeHtml(userName(lead.closedBy))}` : ''}</dd>
+            ${lead.outcomeNote ? `<dt>Poznámka</dt><dd>${escapeHtml(lead.outcomeNote)}</dd>` : ''}
+            ${lead.outcome === 'meeting' ? `
+                <dt>Studio</dt><dd>${escapeHtml(STUDIO_LABELS[m.studio] ?? m.studio ?? '—')}</dd>
+                <dt>Termín</dt><dd>${fmtDateTime(m.at)}</dd>
+                <dt>Vede</dt><dd>${escapeHtml(userName(m.designerSlug) || '—')}</dd>
+            ` : ''}
+        </dl>
+        ${lead.outcome === 'meeting' ? `
+            <div class="form-group mt-12"><label>Odkaz na událost v Raynetu</label><input id="fRaynet" type="url" value="${escapeHtml(m.raynetUrl)}" placeholder="https://app.raynet.cz/…"></div>
+            <div class="btn-row">
+                ${m.raynetUrl ? `<a class="btn btn--ghost btn--sm" href="${escapeHtml(m.raynetUrl)}" target="_blank" rel="noopener">Otevřít v Raynetu</a>` : ''}
+                <button class="btn btn--ghost btn--sm" id="saveRaynet">Uložit odkaz</button>
+            </div>` : ''}
+        <div class="mt-20"><button class="btn btn--ghost btn--sm" id="reopenBtn">Znovu otevřít</button></div>
+        `}
+    `;
+
+    body.querySelector('#saveContact').addEventListener('click', () => saveContact(lead));
+    if (isOpen) {
+        body.querySelectorAll('[data-attempt]').forEach(btn =>
+            btn.addEventListener('click', () => logAttempt(lead, btn.dataset.attempt)));
+        body.querySelector('#callbackBtn').addEventListener('click', () => {
+            const wrap = body.querySelector('#callbackWrap');
+            if (wrap.classList.contains('hidden')) {
+                wrap.classList.remove('hidden');
+                body.querySelector('#callbackBtn').textContent = 'Uložit „Zavolat jindy“';
+                body.querySelector('#fCallback').focus();
+            } else {
+                logAttempt(lead, 'callback');
+            }
+        });
+        body.querySelector('#fOutcome').addEventListener('change', e =>
+            body.querySelector('#meetingWrap').classList.toggle('hidden', e.target.value !== 'meeting'));
+        body.querySelector('#closeLeadBtn').addEventListener('click', () => closeLead(lead));
+    } else {
+        body.querySelector('#reopenBtn').addEventListener('click', () => reopenLead(lead));
+        body.querySelector('#saveRaynet')?.addEventListener('click', () => saveRaynet(lead));
+    }
+}
+
+// ── zápisy ──
+
+function audit() {
+    return { updatedAt: Timestamp.now(), updatedBy: session.slug };
+}
+
+// `newAttempt` jde do Firestore přes arrayUnion (atomicky, bez přepsání pole).
+async function save(lead, data, okMsg, newAttempt = null) {
+    try {
+        if (DEMO) {
+            for (const [k, v] of Object.entries({ ...data, ...audit() })) {
+                const [head, sub] = k.split('.');
+                if (sub) lead[head] = { ...(lead[head] || {}), [sub]: v };
+                else lead[k] = v;
+            }
+            if (newAttempt) lead.attempts = [...(lead.attempts || []), newAttempt];
+            onLeadsChanged();
+        } else {
+            await updateDoc(doc(db, 'leads', lead.id), {
+                ...data,
+                ...(newAttempt ? { attempts: arrayUnion(newAttempt) } : {}),
+                ...audit(),
+            });
+        }
+        showToast(okMsg, 'success');
+        return true;
+    } catch (err) {
+        console.error(err);
+        showToast('Nepodařilo se uložit, zkuste to znovu');
+        return false;
+    }
+}
+
+function val(id) {
+    return document.getElementById(id)?.value.trim() ?? '';
+}
+
+async function saveContact(lead) {
+    const email = val('fEmail');
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showToast('Neplatný e-mail');
+    await save(lead, { name: val('fName'), email: email.toLowerCase(), notes: val('fNotes') }, 'Kontakt uložen');
+}
+
+function attemptEntry(result, note) {
+    return { at: Timestamp.now(), by: session.slug, result, note };
+}
+
+async function logAttempt(lead, result) {
+    const now = new Date();
+    let next;
+    if (result === 'callback') {
+        const v = val('fCallback');
+        if (!v) return showToast('Vyplň, kdy zavolat znovu');
+        next = new Date(v);
+    } else {
+        next = addWorkingMinutes(now, RETRY_SLA_MIN);
+    }
+    const data = { nextActionAt: Timestamp.fromDate(next) };
+    if (!lead.firstAttemptAt) data.firstAttemptAt = Timestamp.fromDate(now);
+    await save(lead, data, `Zapsáno: ${RESULT_LABELS[result]}`, attemptEntry(result, val('fAttemptNote')));
+}
+
+async function closeLead(lead) {
+    const outcome = val('fOutcome');
+    if (!outcome) return showToast('Vyber výsledek');
+    const now = new Date();
+    const data = {
+        status: 'closed',
+        outcome,
+        outcomeNote: val('fOutcomeNote'),
+        closedAt: Timestamp.fromDate(now),
+        closedBy: session.slug,
+        nextActionAt: null,
+    };
+    if (outcome === 'meeting') {
+        const raynetUrl = val('fRaynet');
+        if (raynetUrl && !RAYNET_RE.test(raynetUrl)) return showToast('Odkaz musí vést do Raynetu (raynet.cz)');
+        const at = val('fMeetingAt');
+        data.meeting = {
+            studio: val('fStudio') || null,
+            at: at ? Timestamp.fromDate(new Date(at)) : null,
+            designerSlug: val('fDesigner') || null,
+            raynetUrl: raynetUrl || null,
+        };
+        if (!data.meeting.studio || !data.meeting.at) return showToast('U schůzky vyplň studio a termín');
+    }
+    const reached = REACHED_OUTCOMES.includes(outcome);
+    if (reached && !lead.firstAttemptAt) data.firstAttemptAt = Timestamp.fromDate(now);
+    if (await save(lead, data, `Uzavřeno: ${OUTCOME_LABELS[outcome]}`, reached ? attemptEntry('reached', '') : null)) closeModal();
+}
+
+async function reopenLead(lead) {
+    await save(lead, {
+        status: 'open', outcome: null, closedAt: null, closedBy: null,
+        nextActionAt: Timestamp.now(),
+    }, 'Lead znovu otevřen');
+}
+
+async function saveRaynet(lead) {
+    const raynetUrl = val('fRaynet');
+    if (raynetUrl && !RAYNET_RE.test(raynetUrl)) return showToast('Odkaz musí vést do Raynetu (raynet.cz)');
+    await save(lead, { 'meeting.raynetUrl': raynetUrl || null }, 'Odkaz uložen');
+}
+
+init();
+</script>
+</body>
+</html>

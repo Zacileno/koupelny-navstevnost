@@ -147,3 +147,30 @@ Kolekce `vacations`:
 **Kontext:** Adaptace zatím nepoužívá sdílený `requireAuth()` (viz dřívější rozhodnutí — není to urgentní refaktor), takže `/adaptace/muj-plan.html` sám o sobě nekontroluje `mustChangePassword`. Zároveň `/login.html` měl natvrdo výchozí přesměrování na `/dovolena/dovolena.html`, i pro lidi, co mají aktivní adaptaci a nic v Dovolené.
 
 **Rozhodnuto:** `public/login.html` teď po přihlášení (bez explicitního `?redirect=`) sám zjistí, jestli přihlášený má aktivní `adaptations` dokument (`employeeId == uid`, `status in ['active','paused']`) — pokud ano, pošle ho na `/adaptace/muj-plan.html`, jinak zůstává výchozí `/dovolena/dovolena.html`. Zároveň se **formulářové přihlášení teď vždy provede přes sdílené `requireAuth()`** (dřív to dělal jen "už přihlášený" auto-redirect blok, ne samotné odeslání formuláře) — tím se `mustChangePassword` kontroluje centrálně na jednom místě při loginu, bez ohledu na to, kam se pak směruje, takže vynucená změna hesla funguje i pro cestu do Adaptace, přestože `muj-plan.html` samo o sobě tuhle kontrolu neumí.
+
+---
+
+## 2026-10-30 — Modul Leady: kontakty z pop-up formuláře na webu
+
+**Kontext:** Pop-up formulář na koupelnysyrovy.cz sbírá telefon (+ URL stránky s UTM). Dosud to šlo přes Make do Google Sheetu, kde Terka (CX) leady obvolávala a výsledek psala do volného textu. Chybělo SLA, přehled o opakovaných pokusech, měření kampaň → schůzka a vazba na Raynet.
+
+**Vědomé rozhodnutí (výjimka ze Strategického kontextu 2027 v CLAUDE.md):** pravidlo „leady z kampaní se na platformu nenapojují bez výslovného rozhodnutí“ — tohle je to výslovné rozhodnutí (Martin, 2026-10-30), jen pro leady z pop-up formuláře. S rezervačním systémem to nekoliduje: domluvená schůzka se jen zaznamená (studio, termín, kdo vede, odkaz na událost v Raynetu), nic se nerezervuje.
+
+**Rozhodnuto:**
+- **Příjem:** `onRequest` Cloud Function `prijmoutLead` (`functions/leady.js`) — první veřejný HTTP vstup do projektu. Chráněný tajným tokenem v hlavičce `X-Webhook-Token`; token leží ve Firestore `config/leadWebhook` (kolekce bez klientských pravidel → čte jen Admin SDK). Secret Manager záměrně ne — GitHub deployer ani Compute SA na něj nemají role a přidávat je kvůli jednomu tokenu nestojí za další IAM rozvolnění. Prázdné/testovací odeslání (bez platného telefonu i e-mailu) vrací 200 `ignored`, aby Make scénář nespadl.
+- **Přechod:** fáze 1 = Make dál plní sheet a souběžně (další HTTP modul) posílá data sem. Po ověření se formulář na webu přepojí přímo na funkci a Make se vypne.
+- **SLA** (`functions/leady-sla.js`, kopie v `public/leady/leady-sla.js` — hosting a functions se nasazují zvlášť): pracovní doba Po–Pá 8–17 mimo státní svátky, pražský čas. První pokus o kontakt do 2 pracovních hodin (noční/víkendový lead → 10:00 dalšího pracovního dne), další pokus po nezvednutí do 1 pracovního dne, po 3 neúspěšných pokusech UI navrhne uzavřít jako „Nedovoláno“. Pracovní doba je výchozí odhad, Terka ji má potvrdit.
+- **Datový model `leads`:** `phone` normalizovaný na `+420…` (budoucí klíč pro párování s ústřednou), `attempts[]` (pokusy přes `arrayUnion`), `status` jen `open`/`closed`, `nextActionAt` = termín, podle kterého se řadí fronta, `slaDueAt` = SLA prvního kontaktu (neměnné), `outcome` + `meeting{studio, at, designerSlug, raynetUrl}`. Kanál/kampaň/odhad studia se dopočítají z URL už při příjmu. Stejný kontakt do 30 dní → `duplicateOfId`, nic se neslučuje automaticky.
+- **Raynet:** jen pole s odkazem na událost (validace domény `raynet.cz`), bez API integrace.
+- **Rules:** čtení/odbavování pro přihlášené (stejně jako `cx_feedback`), založení jen funkcí, pole z webu (`receivedAt`, `sourceUrl`, `utm`, `slaDueAt`, `raw`…) nejdou z klienta přepsat, mazání nikdo.
+- **Historie ze sheetu:** `scripts/import-leady-sheet.js` (z CSV exportu) — vše jako uzavřené, do statistik se nepočítá.
+
+**Otevřené:** notifikace o novém leadu (dnes jen živá fronta + počet po termínu v titulku záložky), GDPR lhůta pro anonymizaci neúspěšných leadů, přepojení webu napřímo, statistiky leadů v CX dashboardu.
+
+
+**Ruční kroky k zprovoznění (po merge do `main`, pořadí záleží):**
+1. `npx firebase-tools deploy --only firestore:rules` — bez toho klient `leads` nepřečte.
+2. Cloud Run konzole → služba `prijmoutlead` → Permissions → `allUsers` = Cloud Run Invoker (deployer to neumí, viz Známé pasti). Kontrola: `curl -X POST …/prijmoutLead` bez tokenu vrací JSON `unauthenticated`, ne HTML 403 — kontrola v `deploy.yml` do té doby hlásí ✘.
+3. `node scripts/set-lead-webhook-token.js` (ADC přihlášení) → token.
+4. Make scénář: za modul zápisu do sheetu přidat HTTP „Make a request“ — POST na URL funkce, hlavička `X-Webhook-Token`, body JSON `{"phone": …, "url": …, "email": …, "name": …}`; error handler „Ignore“, ať případná chyba nezastaví sheet.
+5. Sheet → CSV → `node scripts/import-leady-sheet.js <csv> --dry-run`, pak ostře.

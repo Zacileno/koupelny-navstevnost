@@ -59,7 +59,7 @@ jobs:
 
       # Stejná kontrola jako v CLAUDE.md (Známé pasti): onCall funkce musí jít
       # zavolat. UNAUTHENTICATED = request prošel až do naší funkce, tedy OK.
-      - name: Ověření, že onCall funkce jdou zavolat
+      - name: Ověření, že veřejné funkce jdou zavolat
         run: |
           fail=0
           for fn in onboardEmployee offboardEmployee resetEmployeePassword; do
@@ -72,4 +72,13 @@ jobs:
               fail=1
             fi
           done
+          # Webhook leadů (onRequest): bez tokenu má vrátit naše JSON 401, ne HTML 403 Google Frontendu.
+          body=$(curl -s -X POST "https://europe-central2-${PROJECT_ID}.cloudfunctions.net/prijmoutLead" \
+            -H 'Content-Type: application/json' -d '{}')
+          if echo "$body" | grep -q '"unauthenticated"'; then
+            echo "✔ prijmoutLead"
+          else
+            echo "✘ prijmoutLead — chybí Cloud Run Invoker? Odpověď: ${body:0:200}"
+            fail=1
+          fi
           exit $fail

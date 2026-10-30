@@ -373,3 +373,7 @@ exports.offboardEmployee = onCall({ region: "europe-central2" }, async (request)
 
   return { slug, endedAdaptations: adaptationsSnap.size };
 });
+
+// ── MODUL LEADY ─────────────────────────────────────────────────────────────
+// Příjem kontaktů z pop-up formuláře na webu — viz functions/leady.js.
+exports.prijmoutLead = require("./leady").prijmoutLead;

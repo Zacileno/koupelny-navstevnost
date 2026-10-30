@@ -19,6 +19,7 @@ Platforma se má přizpůsobit nové obchodní strategii (detail mimo repo: `STR
 - Nic nestavět na předpokladu vlastního rezervačního systému.
 - Externí partneři (SYROVÝ PRO) by byli první lidé mimo firmu s účtem → před tím dořešit Bezpečnostní audit (hlavně Storage) a role (Fáze 3 roadmapy se tím posouvá dopředu).
 - Raynet/Pohoda dál bez integrace — leady z kampaní se na platformu nenapojují bez výslovného rozhodnutí.
+  - **Výjimka (rozhodnuto 2026-10-30):** leady z pop-up formuláře na webu se na platformu napojují — modul Leady níže, odůvodnění v `docs/architektura.md`. Ostatní kampaňové leady (Raynet, Reservanto) beze změny.
 
 ---
 
@@ -159,6 +160,18 @@ Platforma se má přizpůsobit nové obchodní strategii (detail mimo repo: `STR
 - **Fázový přístup k dvojí identitě (vědomé rozhodnutí, ne dokončená migrace):** Adaptace historicky vede samostatný `users/{uid}` dokument s polem `role` (viz past u modulu Adaptace výše) — **6 lidí uprostřed živé 90denní adaptace** (Kateřina, Pavel, Karolína, Yvetta, Petra + jejich manažeři) na něm zůstává beze změny, aby se nesahalo na živá data pod časovým tlakem. Firestore rules (`legacyRole()`/`slugRole()`/`userRole()` v `firestore.rules`) i klientský kód (`getUserProfile` v `adaptace-common.js`, dotazy v `tym.html`/`muj-plan.html`/`login.html`) proto zkouší **obě cesty**: nejdřív `slug` claim + `platformRole`, při jeho absenci spadnou na starý `uid` + `role`. Podobně `adaptations.roles.{key}` má u starých záznamů klíč `uid`, u nových (přes admin konzoli) klíč `slug` — obojí rules podporují. Zpětné domigrování těch 6 lidí na jednotnou identitu zůstává otevřený, neurgentní úklid (viz technické dluhy).
 - **Ověřeno end-to-end 2026-08-07/08** (bez použití reálných hesel — přes dočasný QA test účet smazaný po testu): onboarding bez i s adaptací (`phases`/`roles.manager.slug` správně), zamítnutí duplicitního e-mailu, zamítnutí volání od ne-admina, offboarding (deaktivace, zablokování loginu, `status:'ended'` na adaptaci, zmizení z dropdownu Návštěvnosti), Firestore rules dual-path (zaměstnanec čte vlastní adaptaci, cizí je mu zamítnuta) — vše přes přímé HTTP volání funkcí a Firestore REST API s reálným Firebase ID tokenem, protože GUI test přes Browser pane cestou vypadl (viz past níže).
 - **Stav:** ✅ Nasazeno na produkci a ověřeno. Editace existujících lidí (mimo aktivní/neaktivní) zatím není — přirozený další krok.
+
+
+### 8. Leady (kontakty z pop-up formuláře na webu)
+- **Účel:** Fronta úkolů pro Terku (CX) — obvolat kontakty z pop-up formuláře na koupelnysyrovy.cz v rámci SLA, zapsat pokusy a výsledek. Nahrazuje Google Sheet plněný přes Make.
+- **Login:** ✅ sdílený platformový login (`requireAuth()`), demo mód `?demo=1` (bez Auth i Firestore, ukázková data)
+- **Stránka:** `public/leady/leady.html` (odkaz i z `cx.html`) — KPI (ke zpracování, po termínu, 1. kontakt v SLA, % schůzek za 30 dní), fronta seřazená podle termínu (`nextActionAt`) s barevným SLA štítkem, klik na číslo = `tel:` vytočení, detail s pokusy („Nezvedá“ / „Hlasová schránka“ / „Zavolat jindy…“ s termínem) a uzavřením s výsledkem. Živě přes `onSnapshot`, počet leadů po termínu v titulku záložky.
+- **Příjem:** Cloud Function `prijmoutLead` (`onRequest`, `europe-central2`, `functions/leady.js`) — **veřejná HTTP URL** `https://europe-central2-koupelny-navstevnost.cloudfunctions.net/prijmoutLead`, POST JSON, hlavička `X-Webhook-Token` (token ve Firestore `config/leadWebhook.token`, nastavit/vyměnit `scripts/set-lead-webhook-token.js`). Názvy polí v payloadu nejsou pevné — hledá telefon/e-mail/jméno/URL podle klíče. Bez platného telefonu i e-mailu vrací 200 `ignored` (aby Make nespadl).
+- **SLA:** `functions/leady-sla.js` + kopie `public/leady/leady-sla.js` (**měnit oba**). Po–Pá 8–17 mimo svátky, pražský čas; 1. pokus do 2 pracovních hodin, další po nezvednutí do 1 pracovního dne, po 3 neúspěšných UI navrhne „Nedovoláno“.
+- **Firestore kolekce:** `leads` — `receivedAt`, `source` (`web-popup`/`import-sheet`), `phone` (`+420…`), `phoneRaw`, `email`, `name`, `notes`, `sourceUrl`, `landingPath`, `utm{}`, `channel` (google/meta/bing/seznam/…), `paid`, `studiosGuess[]`, `status` (`open`/`closed`), `attempts[]` (`at`, `by` slug, `result`: `no_answer`/`voicemail`/`callback`/`reached`, `note`), `slaDueAt` (SLA 1. kontaktu, neměnné), `nextActionAt`, `firstAttemptAt`, `outcome` (`meeting`/`info`/`will_call`/`out_of_scope`/`unreachable`/`spam`/`legacy`), `outcomeNote`, `meeting{studio, at, designerSlug, raynetUrl}`, `closedAt`, `closedBy`, `duplicateOfId`, `raw`, `updatedAt`, `updatedBy`
+- **Raynet:** jen odkaz na událost (`meeting.raynetUrl`, validace domény `raynet.cz`), žádná integrace
+- **Historie:** `scripts/import-leady-sheet.js <csv> [--dry-run]` — řádky ze sheetu jako uzavřené (`outcome: meeting`/`legacy`), ID `sheet-<řádek>`, do statistik se nepočítají. CSV obsahuje osobní údaje — necommitovat.
+- **Stav:** Fáze 1 napsaná a ověřená lokálně (demo mód v prohlížeči, SLA výpočty, parsování URL/telefonů, dry-run importu). **Čeká na ruční kroky** — viz checklist v `docs/architektura.md` (2026-10-30) / popis PR: nasadit rules, nastavit Cloud Run Invoker pro `prijmoutLead`, vygenerovat token, přidat HTTP modul do Make, import historie.
 
 ---
 
@@ -384,7 +397,11 @@ Zjištěno 2026-09-11 při zakládání `pristupy@zacileno.eu` (viz technické d
 
 ---
 
-*Poslední aktualizace: 2026-10-28 — doplněn Strategický kontext 2027 (rezervace od 01/2027, SYROVÝ PRO, rezervační systém nerozhodnut) a dvě položky do Fáze 2 roadmapy. Bez změny kódu.*
+*Poslední aktualizace: 2026-10-30 — nový modul Leady (fáze 1): webhook `prijmoutLead`, kolekce `leads` se SLA, fronta pro Terku `public/leady/leady.html`, import historie ze sheetu. Vědomá výjimka ze strategického pravidla o nenapojování leadů, viz `docs/architektura.md`.*
+
+---
+
+*Předchozí aktualizace: 2026-10-28 — doplněn Strategický kontext 2027 (rezervace od 01/2027, SYROVÝ PRO, rezervační systém nerozhodnut) a dvě položky do Fáze 2 roadmapy. Bez změny kódu.*
 
 ---
 

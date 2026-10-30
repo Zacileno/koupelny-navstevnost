@@ -41,6 +41,18 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
+    // Leady z pop-up formuláře na webu (public/leady/leady.html). Zakládá je
+    // jen Cloud Function prijmoutLead (Admin SDK); přihlášený smí lead
+    // odbavovat, ale ne přepsat to, co přišlo z webu. Nikdo nemaže.
+    match /leads/{leadId} {
+      allow read: if isSignedIn();
+      allow create: if false;
+      allow update: if isSignedIn() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(
+          ['receivedAt', 'source', 'phoneRaw', 'sourceUrl', 'utm', 'channel', 'paid', 'landingPath', 'slaDueAt', 'raw']);
+      allow delete: if false;
+    }
+
     // ── MODUL ADAPTACE ──────────────────────────────────────────────────────
 
     // Pomocné funkce

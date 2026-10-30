@@ -284,7 +284,8 @@ function render() {
             </div>
             <div class="lead-card__side">
                 ${lead.status === 'open' ? slaChip(lead) : `<span class="badge ${lead.outcome === 'meeting' ? 'badge--gold' : 'badge--pending'}">${escapeHtml(OUTCOME_LABELS[lead.outcome] ?? lead.outcome)}</span>`}
-                <span class="lead-card__meta">${lead.attempts?.length ? `${lead.attempts.length}× voláno` : 'Zatím nevoláno'}${studiosLine(lead) ? ` · ${escapeHtml(studiosLine(lead))}` : ''}</span>
+                <span class="lead-card__meta">${lead.attempts?.length ? `${lead.attempts.length}× voláno`
+                    : lead.firstAttemptAt ? `Kontaktováno ${toDate(lead.firstAttemptAt).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' })}` : 'Zatím nevoláno'}${studiosLine(lead) ? ` · ${escapeHtml(studiosLine(lead))}` : ''}</span>
                 ${lead.duplicateOfId ? '<span class="badge badge--collision">Možná duplicita</span>' : ''}
             </div>
             ${lastAttempt?.note || lead.notes ? `<div class="lead-card__note">${escapeHtml(lastAttempt?.note || lead.notes)}</div>` : ''}

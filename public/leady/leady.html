@@ -58,6 +58,11 @@
 </div>
 
 <div class="page-wrap">
+    <div class="tabs" id="periods">
+        <button class="tab tab--active" data-days="30">30 dní</button>
+        <button class="tab" data-days="90">90 dní</button>
+        <button class="tab" data-days="0">Vše</button>
+    </div>
     <div class="kpi-row" id="kpis"></div>
 
     <div class="tabs">
@@ -108,6 +113,7 @@ let db = null;
 let leads = [];
 let usersData = {};
 let activeTab = 'open';
+let statsDays = 30; // 0 = celá historie
 let openLeadId = null;
 let openLeadVersion = null;
 
@@ -129,10 +135,15 @@ async function init() {
         usersData = Object.fromEntries(usersSnap.docs.map(d => [d.id, d.data()]));
     }
 
-    document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-tab]').forEach(btn => btn.addEventListener('click', () => {
         activeTab = btn.dataset.tab;
-        document.querySelectorAll('.tab').forEach(b => b.classList.toggle('tab--active', b === btn));
+        document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('tab--active', b === btn));
         render();
+    }));
+    document.querySelectorAll('[data-days]').forEach(btn => btn.addEventListener('click', () => {
+        statsDays = Number(btn.dataset.days);
+        document.querySelectorAll('[data-days]').forEach(b => b.classList.toggle('tab--active', b === btn));
+        renderKpis();
     }));
     document.getElementById('modalClose').addEventListener('click', closeModal);
     document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
@@ -238,9 +249,10 @@ function renderKpis() {
     const now = new Date();
     const open = leads.filter(l => l.status === 'open');
     const late = open.filter(l => toDate(l.nextActionAt) < now);
-    const since = new Date(now.getTime() - 30 * 86400000);
-    const recent = leads.filter(l => toDate(l.receivedAt) >= since && l.source !== 'import-sheet' && l.outcome !== 'spam');
-    const withAttempt = recent.filter(l => l.firstAttemptAt);
+    const since = statsDays ? new Date(now.getTime() - statsDays * 86400000) : new Date(0);
+    const recent = leads.filter(l => toDate(l.receivedAt) >= since && l.outcome !== 'spam');
+    // SLA jen u leadů z webhooku — historie ze sheetu SLA neměla (datum kontaktu bez času).
+    const withAttempt = recent.filter(l => l.firstAttemptAt && l.source !== 'import-sheet');
     const inSla = withAttempt.filter(l => toDate(l.firstAttemptAt) <= toDate(l.slaDueAt));
     const closed = recent.filter(l => l.status === 'closed');
     const meetings = closed.filter(l => l.outcome === 'meeting');
@@ -249,7 +261,7 @@ function renderKpis() {
     document.getElementById('kpis').innerHTML = `
         <div class="kpi"><div class="kpi__label">Ke zpracování</div><div class="kpi__value">${open.length}</div></div>
         <div class="kpi"><div class="kpi__label">Po termínu</div><div class="kpi__value ${late.length ? 'text-danger' : ''}">${late.length}</div></div>
-        <div class="kpi"><div class="kpi__label">Leadů / 30 dní</div><div class="kpi__value">${recent.length}</div></div>
+        <div class="kpi"><div class="kpi__label">Leadů / ${statsDays ? `${statsDays} dní` : 'celkem'}</div><div class="kpi__value">${recent.length}</div></div>
         <div class="kpi"><div class="kpi__label">1. kontakt v SLA</div><div class="kpi__value">${pct(inSla.length, withAttempt.length)}</div><div class="kpi__sub">${inSla.length} z ${withAttempt.length}</div></div>
         <div class="kpi"><div class="kpi__label">Schůzka</div><div class="kpi__value text-gold">${pct(meetings.length, closed.length)}</div><div class="kpi__sub">${meetings.length} z ${closed.length} uzavřených</div></div>
     `;

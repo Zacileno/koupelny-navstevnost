@@ -45,6 +45,10 @@
         .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
         .hint-warn { font-size: 12px; color: var(--warning); margin-bottom: 10px; }
         .hidden { display: none !important; }
+        /* Tmavý nativní kalendář a viditelná ikona u datumu (bez toho je ikona černá na tmavém pozadí). */
+        input[type="datetime-local"] { color-scheme: dark; cursor: pointer; }
+        .field-error { border-color: var(--danger) !important; }
+        .form-error { font-size: 13px; color: var(--danger); margin: 0 0 10px; }
     </style>
 </head>
 <body>
@@ -52,6 +56,7 @@
     <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
     <span class="topbar__title">Leady z webu</span>
     <div class="topbar__user">
+        <a href="../cx-dashboard.html" class="btn-logout" style="text-decoration:none">CX Dashboard</a>
         <span class="topbar__user-name" id="userName">…</span>
         <button class="btn-logout" id="logoutBtn">Odhlásit</button>
     </div>
@@ -408,6 +413,7 @@ function renderModal() {
             <div class="form-group"><label>Odkaz na událost v Raynetu</label><input id="fRaynet" type="url" placeholder="https://app.raynet.cz/…"></div>
         </div>
         <div class="form-group"><label>Poznámka k výsledku</label><textarea id="fOutcomeNote" placeholder="Nepovinné"></textarea></div>
+        <div class="form-error hidden" id="closeError"></div>
         <button class="btn btn--primary" id="closeLeadBtn">Uzavřít lead</button>
         ` : `
         <h3>Výsledek</h3>
@@ -432,6 +438,9 @@ function renderModal() {
     `;
 
     body.querySelector('#saveContact').addEventListener('click', () => saveContact(lead));
+    // Klik kamkoliv do pole s datem otevře kalendář (nativně jen klik na malou ikonu).
+    body.querySelectorAll('input[type="datetime-local"]').forEach(inp =>
+        inp.addEventListener('click', () => { try { inp.showPicker(); } catch { /* starší prohlížeč */ } }));
     if (isOpen) {
         body.querySelectorAll('[data-attempt]').forEach(btn =>
             btn.addEventListener('click', () => logAttempt(lead, btn.dataset.attempt)));
@@ -516,9 +525,18 @@ async function logAttempt(lead, result) {
     await save(lead, data, `Zapsáno: ${RESULT_LABELS[result]}`, attemptEntry(result, val('fAttemptNote')));
 }
 
+// Chyba přímo nad tlačítkem + červený rámeček u pole — toast dole se snadno přehlédl.
+function closeFormError(message, fieldIds = []) {
+    document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+    fieldIds.forEach(id => document.getElementById(id)?.classList.add('field-error'));
+    const el = document.getElementById('closeError');
+    el.textContent = message;
+    el.classList.remove('hidden');
+}
+
 async function closeLead(lead) {
     const outcome = val('fOutcome');
-    if (!outcome) return showToast('Vyber výsledek');
+    if (!outcome) return closeFormError('Vyber výsledek.', ['fOutcome']);
     const now = new Date();
     const data = {
         status: 'closed',
@@ -530,7 +548,7 @@ async function closeLead(lead) {
     };
     if (outcome === 'meeting') {
         const raynetUrl = val('fRaynet');
-        if (raynetUrl && !RAYNET_RE.test(raynetUrl)) return showToast('Odkaz musí vést do Raynetu (raynet.cz)');
+        if (raynetUrl && !RAYNET_RE.test(raynetUrl)) return closeFormError('Odkaz musí vést do Raynetu (raynet.cz).', ['fRaynet']);
         const at = val('fMeetingAt');
         data.meeting = {
             studio: val('fStudio') || null,
@@ -538,7 +556,8 @@ async function closeLead(lead) {
             designerSlug: val('fDesigner') || null,
             raynetUrl: raynetUrl || null,
         };
-        if (!data.meeting.studio || !data.meeting.at) return showToast('U schůzky vyplň studio a termín');
+        const missing = [!data.meeting.studio && 'fStudio', !data.meeting.at && 'fMeetingAt'].filter(Boolean);
+        if (missing.length) return closeFormError('U schůzky vyplň studio a termín.', missing);
     }
     const reached = REACHED_OUTCOMES.includes(outcome);
     if (reached && !lead.firstAttemptAt) data.firstAttemptAt = Timestamp.fromDate(now);

@@ -207,6 +207,22 @@
             flex-wrap: wrap;
             margin-bottom: 18px;
         }
+        .table-search {
+            min-width: 240px;
+            padding: 9px 12px;
+            border: 1px solid var(--gray-border);
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-family: var(--font);
+            font-weight: 600;
+            color: var(--black);
+            background-color: var(--gray-light);
+            outline: none;
+            transition: border-color .15s;
+        }
+        .table-search:hover, .table-search:focus { border-color: var(--blue); }
+        .table-search.f-active { border-color: var(--blue); background-color: var(--blue-light); }
+        .search-note { font-size: 12px; color: var(--blue); font-weight: 600; margin: -8px 0 12px; }
         .btn-export { margin-left: auto; color: var(--blue); border-color: var(--blue); }
         .btn-export:hover { background: var(--blue-light); }
         .btn-show-all { display: block; margin: 16px auto 0; }
@@ -581,6 +597,7 @@
         <a href="index.html"        class="nav-tab">Návštěvnost</a>
         <a href="cx.html"           class="nav-tab">Zadat zpětnou vazbu</a>
         <a href="cx-dashboard.html" class="nav-tab active">CX Dashboard</a>
+        <a href="leady/leady.html"  class="nav-tab">Leady z webu</a>
     </div>
 
     <main>
@@ -703,6 +720,10 @@
             <h2>Záznamy <span id="tableCount" style="font-weight:500;opacity:.6"></span></h2>
             <div class="table-toolbar">
                 <div class="filter-group">
+                    <label for="tableSearch">Hledat klienta (celá historie)</label>
+                    <input type="search" id="tableSearch" class="table-search" placeholder="Jméno, telefon nebo e-mail" autocomplete="off">
+                </div>
+                <div class="filter-group">
                     <label>Hodnocení (doporučení)</label>
                     <div class="view-mode-tabs" id="segmentTabs">
                         <button type="button" class="view-mode-btn active" data-segment="">Vše</button>
@@ -721,6 +742,7 @@
                 </div>
                 <button type="button" class="btn-reset-filters btn-export" id="exportCsvBtn">⤓ Export CSV</button>
             </div>
+            <div class="search-note" id="searchNote" style="display:none"></div>
             <div class="cx-table-wrap">
                 <table class="cx-table" id="cxTable">
                     <colgroup>
@@ -1056,9 +1078,36 @@ function compareByScore(a, b, dir) {
     return recordDate(b).localeCompare(recordDate(a));
 }
 
+// Hledání klienta: prohledá CELOU historii (ignoruje období, horní filtry i segment),
+// aby Terka rychle ověřila, jestli už klientovi někdy volala. Bez diakritiky,
+// telefon jen podle číslic (mezery/předvolba nevadí).
+const normText = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const digits = s => String(s ?? '').replace(/\D/g, '');
+
+function searchRecords(records, q) {
+    const words = normText(q).split(/\s+/).filter(Boolean);
+    const qDigits = digits(q);
+    return records.filter(r => {
+        if (qDigits.length >= 6 && digits(r.telefon).includes(qDigits.slice(-9))) return true;
+        const hay = normText(`${r.jmeno} ${r.email} ${r.firma ?? ''}`);
+        return words.length > 0 && words.every(w => hay.includes(w));
+    });
+}
+
 function renderTable(data) {
     const sortMode = document.getElementById('tableSort').value;
-    const filtered = data.filter(r => inSegment(r, tableSegment));
+    const q = document.getElementById('tableSearch').value.trim();
+    const searchNote = document.getElementById('searchNote');
+    searchNote.style.display = q ? 'block' : 'none';
+    let filtered;
+    if (q) {
+        filtered = searchRecords(allData, q);
+        searchNote.textContent = filtered.length
+            ? `Hledání v celé historii (bez ohledu na období a filtry): ${filtered.length} ${filtered.length === 1 ? 'záznam' : filtered.length < 5 ? 'záznamy' : 'záznamů'}`
+            : 'V celé historii nic nenalezeno — tomuto klientovi jsme zatím nevolali.';
+    } else {
+        filtered = data.filter(r => inSegment(r, tableSegment));
+    }
     tableRows = filtered.sort((a, b) => {
         if (sortMode === 'worst') return compareByScore(a, b, 1);
         if (sortMode === 'best')  return compareByScore(a, b, -1);
@@ -1213,6 +1262,9 @@ function updateFilterUI() {
     const sortSel = document.getElementById('tableSort');
     sortSel.classList.toggle('f-active', sortSel.value !== 'date');
     if (tableSegment || sortSel.value !== 'date') anyActive = true;
+    const searchInp = document.getElementById('tableSearch');
+    searchInp.classList.toggle('f-active', !!searchInp.value.trim());
+    if (searchInp.value.trim()) anyActive = true;
     document.querySelectorAll('#segmentTabs .view-mode-btn').forEach(b =>
         b.classList.toggle('active', b.dataset.segment === tableSegment));
     document.getElementById('resetFiltersBtn').disabled = !anyActive;
@@ -1338,6 +1390,7 @@ async function init() {
         });
     });
     document.getElementById('tableSort').addEventListener('change', render);
+    document.getElementById('tableSearch').addEventListener('input', render);
     document.getElementById('showAllBtn').addEventListener('click', () => { tableShowAll = !tableShowAll; render(); });
     document.getElementById('exportCsvBtn').addEventListener('click', exportCsv);
 
@@ -1349,6 +1402,7 @@ async function init() {
         tableSegment = '';
         tableShowAll = false;
         document.getElementById('tableSort').value = 'date';
+        document.getElementById('tableSearch').value = '';
         periodMode  = 'month';
         periodYear  = DEFAULT_PERIOD_YEAR;
         periodMonth = DEFAULT_PERIOD_MONTH;

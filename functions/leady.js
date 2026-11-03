@@ -1,5 +1,6 @@
 // ── MODUL LEADY (public/leady/leady.html) ───────────────────────────────────
-// Příjem kontaktů z pop-up formuláře na koupelnysyrovy.cz. Fáze 1: Make scénář
+// Příjem kontaktů z pop-up formuláře na koupelnysyrovy.cz a z Facebook/Instagram
+// lead formulářů (source=meta-form, viz parseMetaSource). Pop-up, fáze 1: Make scénář
 // dál plní Google Sheet a souběžně posílá stejná data sem (HTTP modul s hlavičkou
 // X-Webhook-Token). Později se formulář na webu přepojí přímo sem a Make se vypne.
 //
@@ -98,12 +99,47 @@ function parseSource(sourceUrl) {
   result.paid = ["cpc", "ppc", "paid", "paid_social"].includes((result.utm.medium || "").toLowerCase()) ||
     q.has("gclid") || q.has("gbraid") || q.has("msclkid");
 
-  const hay = `${result.utm.campaign || ""} ${url.pathname}`.toLowerCase();
-  if (/praha|prague|sckraj/.test(hay)) result.studiosGuess.push("praha");
-  if (/brno/.test(hay)) result.studiosGuess.push("brno");
-  if (/hradec|_hk\b|_hk_|hk$/.test(hay)) result.studiosGuess.push("hradec");
-  if (/pardubic|pce/.test(hay)) result.studiosGuess.push("pardubice");
+  result.studiosGuess = guessStudios(`${result.utm.campaign || ""} ${url.pathname}`);
   return result;
+}
+
+function guessStudios(text) {
+  const hay = text.toLowerCase();
+  const out = [];
+  if (/praha|prague|sckraj/.test(hay)) out.push("praha");
+  if (/brno/.test(hay)) out.push("brno");
+  if (/hradec|_hk\b|_hk_|hk$/.test(hay)) out.push("hradec");
+  if (/pardubic|pce/.test(hay)) out.push("pardubice");
+  return out;
+}
+
+// Facebook/Instagram lead formulář (Make scénář "FB leady → sheety a dashboard",
+// HTTP modul s `source=meta-form`). Kampaň/reklama místo URL, kanál vždy meta.
+// Klíče jsou po flatten() malými písmeny: leadid, formid, campaign, adset, ad,
+// platform (fb/ig), organic (true/false).
+const META_SOURCE = "meta-form";
+
+function parseMetaSource(fields) {
+  const cut = (v) => (v || "").trim().slice(0, 300);
+  const platform = cut(fields.platform).toLowerCase();
+  const organic = /^(true|1|yes|ano)$/i.test(cut(fields.organic));
+  const campaign = cut(fields.campaign);
+  const adset = cut(fields.adset);
+  const ad = cut(fields.ad);
+  const utm = {
+    source: platform === "ig" ? "instagram" : "facebook",
+    medium: organic ? "organic" : "paid_social",
+  };
+  if (campaign) utm.campaign = campaign;
+  if (ad) utm.content = ad;
+  return {
+    landingPath: "",
+    utm,
+    channel: "meta",
+    paid: !organic,
+    studiosGuess: guessStudios(`${campaign} ${adset} ${ad}`),
+    meta: { leadId: cut(fields.leadid), formId: cut(fields.formid), platform, adset, ad },
+  };
 }
 
 exports.prijmoutLead = onRequest(
@@ -125,7 +161,8 @@ exports.prijmoutLead = onRequest(
     const phoneRaw = pick(fields, [/^phone$/, /^(telefon|tel)$/, /phone|telefon|^tel/]);
     const emailRaw = pick(fields, [/^e?-?mail$/, /mail/]);
     const name = pick(fields, [/^(name|jmeno|full_?name)$/, /jmeno|name/]);
-    const sourceUrl = pick(fields, [/^(url|source_?url|page_?url)$/, /url|href|stranka|page/]);
+    const isMeta = fields.source === META_SOURCE;
+    const sourceUrl = isMeta ? "" : pick(fields, [/^(url|source_?url|page_?url)$/, /url|href|stranka|page/]);
 
     const phone = normalizePhone(phoneRaw);
     const email = isEmail(emailRaw) ? emailRaw.toLowerCase() : "";
@@ -150,14 +187,18 @@ exports.prijmoutLead = onRequest(
     const dup = dupSnap.docs.find((d) => d.data().receivedAt?.toMillis() >= since.toMillis());
     if (dup) duplicateOfId = dup.id;
 
-    const source = parseSource(sourceUrl);
+    const source = isMeta ? parseMetaSource(fields) : parseSource(sourceUrl);
     const slaDueAt = Timestamp.fromDate(addWorkingMinutes(now, FIRST_CONTACT_SLA_MIN));
 
     const rawJson = JSON.stringify(body).slice(0, 10000);
 
-    const ref = await db.collection("leads").add({
+    // Lead z Facebooku má vlastní ID → dokument meta-<id>, takže opakované
+    // doručení stejného leadu (retry v Make) nezaloží druhý záznam.
+    const metaId = isMeta && /^[\w-]{1,100}$/.test(source.meta.leadId) ? `meta-${source.meta.leadId}` : null;
+    const ref = metaId ? db.collection("leads").doc(metaId) : db.collection("leads").doc();
+    const lead = {
       receivedAt: Timestamp.fromDate(now),
-      source: "web-popup",
+      source: isMeta ? META_SOURCE : "web-popup",
       phone,
       phoneRaw: phoneRaw.slice(0, 100),
       email,
@@ -173,12 +214,22 @@ exports.prijmoutLead = onRequest(
       duplicateOfId,
       raw: rawJson,
       updatedAt: Timestamp.fromDate(now),
-    });
+    };
+    try {
+      await ref.create(lead);
+    } catch (err) {
+      if (err.code === 6) { // ALREADY_EXISTS
+        console.log("prijmoutLead: lead už existuje", ref.id);
+        res.status(200).json({ ok: true, id: ref.id, duplicate: true });
+        return;
+      }
+      throw err;
+    }
 
-    console.log("prijmoutLead: založen lead", ref.id, { channel: source.channel, duplicateOfId });
+    console.log("prijmoutLead: založen lead", ref.id, { source: lead.source, channel: source.channel, duplicateOfId });
     res.status(200).json({ ok: true, id: ref.id });
   }
 );
 
 // Jen pro lokální ověření (index.js exportuje pouze prijmoutLead).
-exports._internal = { parseSource, normalizePhone, flatten, pick };
+exports._internal = { parseSource, parseMetaSource, normalizePhone, flatten, pick };

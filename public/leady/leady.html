@@ -54,7 +54,7 @@
 <body>
 <div class="topbar">
     <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
-    <span class="topbar__title">Leady z webu</span>
+    <span class="topbar__title">Leady</span>
     <div class="topbar__user">
         <a href="../cx-dashboard.html" class="btn-logout" style="text-decoration:none">CX Dashboard</a>
         <span class="topbar__user-name" id="userName">…</span>
@@ -187,6 +187,9 @@ function demoLeads() {
           channel: 'google', utm: { campaign: 'Search_Koupelny_Brno' }, landingPath: '/koupelna-na-klic/', studiosGuess: ['brno'] },
         { ...base, id: 'd2', phone: '+420724537864', receivedAt: ago(400), slaDueAt: ago(200), nextActionAt: ago(200), updatedAt: ago(400),
           channel: 'meta', utm: { campaign: 'Lead_koupelny' }, landingPath: '/rezervace-konzultace/' },
+        { ...base, id: 'd5', source: 'meta-form', phone: '+420777123456', receivedAt: ago(10), slaDueAt: ago(-110), nextActionAt: ago(-110), updatedAt: ago(10),
+          channel: 'meta', utm: { source: 'facebook', medium: 'paid_social', campaign: 'Leady Praha – listopad', content: 'Video koupelna' },
+          meta: { leadId: '1', formId: '1', platform: 'fb', adset: 'Praha 30 km', ad: 'Video koupelna' }, studiosGuess: ['praha'] },
         { ...base, id: 'd3', phone: '+420602352473', name: 'Jan Novák', receivedAt: ago(3000), slaDueAt: ago(2900), nextActionAt: ago(-30), updatedAt: ago(100),
           firstAttemptAt: ago(2950), channel: 'bing', landingPath: '/sluzby/', studiosGuess: ['hradec', 'pardubice'],
           attempts: [{ at: ago(2950), by: 'demo', result: 'no_answer', note: '' }, { at: ago(1500), by: 'demo', result: 'callback', note: 'Ozvat se kolem 10. — je v práci' }] },
@@ -237,8 +240,14 @@ function slaChip(lead) {
     return `<span class="sla ${diffMin < 60 ? 'sla--soon' : 'sla--ok'}">${label} do ${when}</span>`;
 }
 
+// Lead z FB/IG formuláře nemá URL — místo kanálu "Meta" ukázat, odkud přesně.
+function channelLabel(lead) {
+    if (lead.source === 'meta-form') return lead.meta?.platform === 'ig' ? 'Instagram formulář' : 'Facebook formulář';
+    return CHANNEL_LABELS[lead.channel] ?? lead.channel;
+}
+
 function sourceLine(lead) {
-    const parts = [CHANNEL_LABELS[lead.channel] ?? lead.channel];
+    const parts = [channelLabel(lead)];
     if (lead.utm?.campaign) parts.push(lead.utm.campaign);
     if (lead.landingPath) parts.push(lead.landingPath);
     return parts.filter(Boolean).join(' · ');
@@ -373,9 +382,11 @@ function renderModal() {
         <dl class="info-grid">
             <dt>Přijato</dt><dd>${fmtDateTime(lead.receivedAt)}</dd>
             <dt>SLA 1. kontaktu</dt><dd>${fmtDateTime(lead.slaDueAt)}${lead.firstAttemptAt ? ` · první pokus ${fmtDateTime(lead.firstAttemptAt)}` : ''}</dd>
-            <dt>Kanál</dt><dd>${escapeHtml(CHANNEL_LABELS[lead.channel] ?? lead.channel)}${lead.paid ? ' (placené)' : ''}</dd>
+            <dt>Kanál</dt><dd>${escapeHtml(channelLabel(lead))}${lead.paid ? ' (placené)' : ''}</dd>
             ${lead.utm?.campaign ? `<dt>Kampaň</dt><dd>${escapeHtml(lead.utm.campaign)}</dd>` : ''}
-            <dt>Stránka</dt><dd>${escapeHtml(lead.landingPath || '—')}</dd>
+            ${lead.meta?.adset ? `<dt>Sada reklam</dt><dd>${escapeHtml(lead.meta.adset)}</dd>` : ''}
+            ${lead.meta?.ad ? `<dt>Reklama</dt><dd>${escapeHtml(lead.meta.ad)}</dd>` : ''}
+            ${lead.source === 'meta-form' ? '' : `<dt>Stránka</dt><dd>${escapeHtml(lead.landingPath || '—')}</dd>`}
             ${studiosLine(lead) ? `<dt>Studio (odhad)</dt><dd>${escapeHtml(studiosLine(lead))}</dd>` : ''}
             ${lead.duplicateOfId ? `<dt>Duplicita</dt><dd class="text-warning">Stejný kontakt přišel ${dup ? fmtDateTime(dup.receivedAt) : 'dříve'}${dup ? ` (${escapeHtml(dup.status === 'open' ? 'otevřený' : OUTCOME_LABELS[dup.outcome] ?? '')})` : ''}</dd>` : ''}
         </dl>

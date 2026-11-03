@@ -19,7 +19,7 @@ Platforma se má přizpůsobit nové obchodní strategii (detail mimo repo: `STR
 - Nic nestavět na předpokladu vlastního rezervačního systému.
 - Externí partneři (SYROVÝ PRO) by byli první lidé mimo firmu s účtem → před tím dořešit Bezpečnostní audit (hlavně Storage) a role (Fáze 3 roadmapy se tím posouvá dopředu).
 - Raynet/Pohoda dál bez integrace — leady z kampaní se na platformu nenapojují bez výslovného rozhodnutí.
-  - **Výjimka (rozhodnuto 2026-10-30):** leady z pop-up formuláře na webu se na platformu napojují — modul Leady níže, odůvodnění v `docs/architektura.md`. Ostatní kampaňové leady (Raynet, Reservanto) beze změny.
+  - **Výjimka (rozhodnuto 2026-10-30, rozšířeno 2026-11-03):** leady z pop-up formuláře na webu a z Facebook/Instagram lead formulářů se na platformu napojují — modul Leady níže, odůvodnění v `docs/architektura.md`. Ostatní kampaňové leady (Raynet, Reservanto) beze změny.
 
 ---
 
@@ -163,13 +163,14 @@ Platforma se má přizpůsobit nové obchodní strategii (detail mimo repo: `STR
 - **Stav:** ✅ Nasazeno na produkci a ověřeno. Editace existujících lidí (mimo aktivní/neaktivní) zatím není — přirozený další krok.
 
 
-### 8. Leady (kontakty z pop-up formuláře na webu)
+### 8. Leady (kontakty z pop-up formuláře na webu a z FB/IG lead formulářů)
 - **Účel:** Fronta úkolů pro Terku (CX) — obvolat kontakty z pop-up formuláře na koupelnysyrovy.cz v rámci SLA, zapsat pokusy a výsledek. Nahrazuje Google Sheet plněný přes Make.
 - **Login:** ✅ sdílený platformový login (`requireAuth()`), demo mód `?demo=1` (bez Auth i Firestore, ukázková data)
 - **Stránka:** `public/leady/leady.html` (odkaz i z `cx.html`) — KPI (ke zpracování, po termínu, 1. kontakt v SLA, % schůzek za 30 dní), fronta seřazená podle termínu (`nextActionAt`) s barevným SLA štítkem, klik na číslo = `tel:` vytočení, detail s pokusy („Nezvedá“ / „Hlasová schránka“ / „Zavolat jindy…“ s termínem) a uzavřením s výsledkem. Živě přes `onSnapshot`, počet leadů po termínu v titulku záložky.
 - **Příjem:** Cloud Function `prijmoutLead` (`onRequest`, `europe-central2`, `functions/leady.js`) — **veřejná HTTP URL** `https://europe-central2-koupelny-navstevnost.cloudfunctions.net/prijmoutLead`, POST JSON, hlavička `X-Webhook-Token` (token ve Firestore `config/leadWebhook.token`, nastavit/vyměnit `scripts/set-lead-webhook-token.js`). Názvy polí v payloadu nejsou pevné — hledá telefon/e-mail/jméno/URL podle klíče. Bez platného telefonu i e-mailu vrací 200 `ignored` (aby Make nespadl).
 - **SLA:** `functions/leady-sla.js` + kopie `public/leady/leady-sla.js` (**měnit oba**). Po–Pá 8–17 mimo svátky, pražský čas; 1. pokus do 2 pracovních hodin, další po nezvednutí do 1 pracovního dne, po 3 neúspěšných UI navrhne „Nedovoláno“.
-- **Firestore kolekce:** `leads` — `receivedAt`, `source` (`web-popup`/`import-sheet`), `phone` (`+420…`), `phoneRaw`, `email`, `name`, `notes`, `sourceUrl`, `landingPath`, `utm{}`, `channel` (google/meta/bing/seznam/…), `paid`, `studiosGuess[]`, `status` (`open`/`closed`), `attempts[]` (`at`, `by` slug, `result`: `no_answer`/`voicemail`/`callback`/`reached`, `note`), `slaDueAt` (SLA 1. kontaktu, neměnné), `nextActionAt`, `firstAttemptAt`, `outcome` (`meeting`/`info`/`will_call`/`out_of_scope`/`unreachable`/`spam`/`legacy`), `outcomeNote`, `meeting{studio, at, designerSlug, raynetUrl}`, `closedAt`, `closedBy`, `duplicateOfId`, `raw`, `updatedAt`, `updatedBy`
+- **Facebook/Instagram lead formuláře (od 2026-11-03):** Make scénář „FB leady → sheety a dashboard“ (eu2, ID 10095251): Facebook Lead Ads → Router → Google Sheets (list „fb formy“) → HTTP modul (POST urlEncoded na `prijmoutLead`, hlavička `X-Webhook-Token`, error handler Ignorovat) s poli `source=meta-form`, `phone`, `leadid`, `formid`, `campaign`, `adset`, `ad`, `platform`, `organic`. Lead má ID dokumentu `meta-<leadId>` (opakované doručení nezaloží duplikát), v UI „Facebook/Instagram formulář“ + kampaň/sada/reklama. Formulář se dnes ptá jen na telefon. Ověřeno testovacím payloadem (fiktivní `+420100000002`, uzavřen jako spam), skutečný lead z Facebooku zatím nepřišel. Druhá větev routeru (modul „Webhooky – Odpovědět na webhook“) je nepoužitá.
+- **Firestore kolekce:** `leads` — `receivedAt`, `source` (`web-popup`/`meta-form`/`import-sheet`), `meta{leadId, formId, platform, adset, ad}` (jen `meta-form`), `phone` (`+420…`), `phoneRaw`, `email`, `name`, `notes`, `sourceUrl`, `landingPath`, `utm{}`, `channel` (google/meta/bing/seznam/…), `paid`, `studiosGuess[]`, `status` (`open`/`closed`), `attempts[]` (`at`, `by` slug, `result`: `no_answer`/`voicemail`/`callback`/`reached`, `note`), `slaDueAt` (SLA 1. kontaktu, neměnné), `nextActionAt`, `firstAttemptAt`, `outcome` (`meeting`/`info`/`will_call`/`out_of_scope`/`unreachable`/`spam`/`legacy`), `outcomeNote`, `meeting{studio, at, designerSlug, raynetUrl}`, `closedAt`, `closedBy`, `duplicateOfId`, `raw`, `updatedAt`, `updatedBy`
 - **Uzavření jako schůzka** vyžaduje studio a termín — chyba se ukazuje přímo nad tlačítkem s červeně orámovanými poli (původně jen toast dole, který se přehlédl → „nejde uložit“). Pole s datem mají `color-scheme: dark` (jinak je ikona kalendáře na tmavém pozadí neviditelná) a klik kamkoliv do pole otevře kalendář (`showPicker()`).
 - **Raynet:** jen odkaz na událost (`meeting.raynetUrl`, validace domény `raynet.cz`), žádná integrace
 - **Historie:** `scripts/import-leady-sheet.js <csv> [--dry-run]` — řádky ze sheetu jako uzavřené (`outcome: meeting`/`legacy`), ID `sheet-<řádek>`, do statistik se nepočítají. CSV obsahuje osobní údaje — necommitovat.
@@ -400,7 +401,11 @@ Zjištěno 2026-09-11 při zakládání `pristupy@zacileno.eu` (viz technické d
 
 ---
 
-*Poslední aktualizace: 2026-10-30 — nový modul Leady (fáze 1): webhook `prijmoutLead`, kolekce `leads` se SLA, fronta pro Terku `public/leady/leady.html`, import historie ze sheetu. Vědomá výjimka ze strategického pravidla o nenapojování leadů, viz `docs/architektura.md`.*
+*Poslední aktualizace: 2026-11-03 — Leady přijímají i Facebook/Instagram lead formuláře (Make HTTP modul → `prijmoutLead` se `source=meta-form`), menu přejmenováno na „Leady“. Vědomé rozšíření výjimky o napojení leadů, viz `docs/architektura.md`.*
+
+---
+
+*Předchozí aktualizace: 2026-10-30 — nový modul Leady (fáze 1): webhook `prijmoutLead`, kolekce `leads` se SLA, fronta pro Terku `public/leady/leady.html`, import historie ze sheetu. Vědomá výjimka ze strategického pravidla o nenapojování leadů, viz `docs/architektura.md`.*
 
 ---
 

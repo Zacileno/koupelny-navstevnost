@@ -174,3 +174,18 @@ Kolekce `vacations`:
 3. `node scripts/set-lead-webhook-token.js` (ADC přihlášení) → token.
 4. Make scénář: za modul zápisu do sheetu přidat HTTP „Make a request“ — POST na URL funkce, hlavička `X-Webhook-Token`, body JSON `{"phone": …, "url": …, "email": …, "name": …}`; error handler „Ignore“, ať případná chyba nezastaví sheet.
 5. Sheet → CSV → `node scripts/import-leady-sheet.js <csv> --dry-run`, pak ostře.
+
+---
+
+## 2026-11-03 — Leady: i z Facebook/Instagram lead formulářů
+
+**Kontext:** Meta lead formuláře (dosud jen telefon) šly přes Make scénář „FB leady → sheety a dashboard“ (eu2, ID 10095251) do listu „fb formy“ ve stejném sheetu jako pop-up. Cíl: ať padají Terce do stejné fronty jako pop-up.
+
+**Vědomé rozhodnutí:** rozšíření výjimky z 2026-10-30 (Strategický kontext 2027) i na Meta lead formuláře — výslovně Martin, 2026-11-03. Ostatní kampaňové leady (Raynet, Reservanto) beze změny.
+
+**Rozhodnuto:**
+- **Přes Make, ne napřímo.** Napřímo by šlo (Meta webhook `leadgen` → funkce → Graph API s tokenem systémového uživatele + hodinová pojistka), ale vyžaduje Meta aplikaci, systémového uživatele a Lead Access na stránce. Zatím vybrán Make — stejný vzor jako pop-up, žádné nové přístupy do Meta. Přímé napojení zůstává možností, až se bude vypínat Make úplně.
+- **Stejná funkce `prijmoutLead`**, rozlišení polem `source=meta-form` v payloadu (urlencoded z Make HTTP modulu: `phone`, `leadid`, `formid`, `campaign`, `adset`, `ad`, `platform`, `organic`). Lead dostane `source: 'meta-form'`, `channel: 'meta'`, `paid = !organic`, `utm.campaign`/`utm.content` z kampaně/reklamy, `meta{leadId, formId, platform, adset, ad}`; studio se odhaduje z názvů kampaně/sady/reklamy.
+- **Idempotence:** ID dokumentu `meta-<leadId>` + `create()` — opakované doručení stejného leadu vrátí 200 `duplicate: true`, druhý záznam nevznikne (pop-up vlastní ID nemá, tam zůstává jen `duplicateOfId`).
+- **SLA stejné jako u pop-upu** (výchozí, k potvrzení s Terkou).
+- V Make zůstal původní nepoužitý modul „Webhooky – Odpovědět na webhook“ (druhá větev routeru) — nesmazán, nijak nevadí.

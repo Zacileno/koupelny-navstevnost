@@ -75,3 +75,8 @@ table.tbl input[type="number"], table.tbl input[type="text"] { width: 100%; min-
 .table-wrap { overflow-x: auto; }
 table.tbl tr[data-profile] td { border-top: none; padding-top: 0; }
 table.tbl tr[data-profile] input[type="text"] { width: 100%; }
+
+/* Ikona „i“ s vysvětlivkou (hover i klik/focus, ať funguje i na mobilu). */
+.info { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--blue-border); color: var(--blue); font-size: 10px; font-weight: 700; font-style: normal; text-transform: none; letter-spacing: 0; cursor: help; vertical-align: middle; margin-left: 2px; }
+.tip { position: fixed; z-index: 300; width: 260px; background: var(--surface3); color: var(--text); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; line-height: 1.45; box-shadow: var(--shadow); pointer-events: none; }
+.info:focus { outline: none; border-color: var(--blue); }

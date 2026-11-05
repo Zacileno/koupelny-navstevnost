@@ -35,7 +35,7 @@
     <div id="banner"></div>
 
     <div class="section-h">Služby</div>
-    <p class="hint" style="margin-bottom:8px">Hodnoty se projeví hned. Předstih = nejdřív kolik hodin od teď jde rezervovat (návrh doma 48 = 2 dny). Max. dní dopředu = jak daleko do budoucna klient termíny vidí.</p>
+    <p class="hint" style="margin-bottom:8px">Změny se projeví hned po uložení. Na ikonu <span class="info" aria-hidden="true">i</span> najeď (nebo klikni) pro vysvětlení.</p>
     <div class="card table-wrap"><table class="tbl" id="servicesTbl"></table></div>
 
     <div class="section-h">Designéři</div>
@@ -92,11 +92,18 @@ async function init() {
 
 // ── služby ──
 
+// [pole, nadpis, typ, vysvětlivka pod ikonou „i“]
 const SERVICE_COLS = [
-    ['name', 'Název', 'text'], ['durationMin', 'Délka (min)', 'number'], ['minLeadHours', 'Předstih (hodiny)', 'number'],
-    ['horizonDays', 'Max. dní dopředu', 'number'],
-    ['bufferMin', 'Rozestup (min)', 'number'], ['priceText', 'Cena (text)', 'text'], ['requiresConfirmation', 'Potvrzuje CX', 'bool'], ['active', 'Aktivní', 'bool'],
+    ['name', 'Název', 'text', 'Jak se služba jmenuje ve formuláři pro klienty.'],
+    ['durationMin', 'Délka (min)', 'number', 'Jak dlouho schůzka trvá. Na tolik minut se designérovi zablokuje kalendář.'],
+    ['minLeadHours', 'Nejdřív za (hodin)', 'number', 'Nejkratší doba od rezervace do schůzky. 1 = klient může rezervovat termín za hodinu. 48 = nejdřív za 2 dny (rezervuje-li ve středu v 15:00, první nabídnutý termín je v pátek v 15:00).'],
+    ['horizonDays', 'Nejpozději za (dní)', 'number', 'Jak daleko do budoucna klient termíny vidí. 60 = dnes si může rezervovat nejpozději termín za 60 dní, i kdyby designér měl vypsané volno později.'],
+    ['bufferMin', 'Pauza mezi schůzkami (min)', 'number', 'Volný čas, který musí zůstat před a po schůzce (přejezd, příprava). 0 = schůzky můžou jít hned po sobě.'],
+    ['priceText', 'Cena', 'text', 'Jen text, který klient uvidí u služby (např. „zdarma“). Platba se v systému neřeší.'],
+    ['requiresConfirmation', 'Potvrzuje CX', 'bool', 'Zapnuto = rezervace z webu čeká, než ji CX potvrdí (např. po úhradě zálohy). Vypnuto = klient má termín rovnou potvrzený.'],
+    ['active', 'Aktivní', 'bool', 'Vypnutá služba se klientům nenabízí. Už domluvené rezervace zůstávají.'],
 ];
+const infoIcon = (text) => `<span class="info" tabindex="0" role="button" aria-label="${escapeHtml(text)}" data-tip="${escapeHtml(text)}">i</span>`;
 
 function renderServices() {
     const cell = (s, [key, , type]) => {
@@ -104,7 +111,7 @@ function renderServices() {
         if (type === 'bool') return `<input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}>`;
         return `<input type="${type}" data-k="${key}" value="${escapeHtml(v ?? '')}" ${type === 'number' ? 'min="0"' : ''}>`;
     };
-    $('servicesTbl').innerHTML = `<tr>${SERVICE_COLS.map(c => `<th>${c[1]}</th>`).join('')}<th></th></tr>` +
+    $('servicesTbl').innerHTML = `<tr>${SERVICE_COLS.map(c => `<th>${c[1]} ${infoIcon(c[3])}</th>`).join('')}<th></th></tr>` +
         services.map(s => `<tr data-id="${s.id}">${SERVICE_COLS.map(c => `<td>${cell(s, c)}</td>`).join('')}
             <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td></tr>`).join('');
     $('servicesTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveService(btn.closest('tr'))));

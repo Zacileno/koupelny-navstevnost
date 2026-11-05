@@ -154,7 +154,7 @@
 ## 12a. Body z porady 2026-11-05 (Martin) — zapracováno
 
 - Konzultace ve studiu nejdřív **za 2 hodiny** (`minLeadHours: 2`).
-- Designér si **proaktivně vypisuje**, kdy je k dispozici. Dva typy bloku: **Volno** (konzultace ve studiu a/nebo návrh doma — jeden blok na obojí) a **Směna ve studiu** (drží studio otevřené od–do podle otevírací doby, klienti si ho můžou rezervovat na konzultaci; návrh doma během směny ne). Mezi návrhem doma a jinou schůzkou se drží **čas na přesun** (`config/rezervace.travelMin`, ⚠️ výchozí 60 min).
+- Designér si **proaktivně vypisuje**, kdy je k dispozici. Dva typy bloku: **Na schůzky** (konzultace ve studiu a/nebo návrh doma — jeden blok na obojí) a **Směna ve studiu** (drží studio otevřené od–do podle otevírací doby, klienti si ho můžou rezervovat na konzultaci; návrh doma během směny ne). Mezi návrhem doma a jinou schůzkou se drží **čas na přesun** (`config/rezervace.travelMin`, ⚠️ výchozí 60 min).
 - **Stoly / kapacita studia se neřeší** — rezervuje se vždy konkrétní designér.
 - **Stálá směna:** kdo je ve studiu vždycky (Barča v Pardubicích, HPP), má `reservations.permanentShift` — směny se dopočítají z otevírací doby, nic nevypisuje.
 - **Kalendář celého studia** (`/rezervace/studio.html`) + kalendáře jednotlivců. **Alert 2 měsíce dopředu**, když má být studio otevřené a nikdo nemá směnu (v appce; e-mailem až F2). Jinak si to designéři bookují sami.

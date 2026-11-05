@@ -47,7 +47,7 @@
     <div class="week" id="week"><div class="loader"><div class="spinner"></div>Načítám…</div></div>
     <p class="hint" style="margin-top:10px">
         <span class="chip chip--ok">Směna</span> drží studio otevřené ·
-        <span class="chip chip--blue">Volno</span> může na konzultaci ·
+        <span class="chip chip--blue">Na schůzky</span> může na konzultaci ·
         <span class="chip chip--danger">Nikdo</span> studio má být otevřené, ale nikdo nemá směnu
     </p>
 </div>
@@ -184,7 +184,7 @@ const personLink = (slug) => isAdmin ? `<a href="kalendar.html?designer=${encode
 function blockHtml(b) {
     const time = `${fmtTime(b.start)}–${fmtTime(b.end)}`;
     if (b.kind === 'shift') return `<div class="item item--shift"><span class="who">${personLink(b.designerSlug)}</span><small>Směna ${time}${b.permanent ? ' (stálá)' : ''}</small></div>`;
-    return `<div class="item item--studio"><span class="who">${personLink(b.designerSlug)}</span><small>Volno ${time}</small></div>`;
+    return `<div class="item item--studio"><span class="who">${personLink(b.designerSlug)}</span><small>Na schůzky ${time}</small></div>`;
 }
 
 function bookingHtml(b) {

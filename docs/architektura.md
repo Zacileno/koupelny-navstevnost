@@ -211,7 +211,7 @@ Kolekce `vacations`:
 ### Doplněk 2026-11-05 — body z porady k rezervacím
 
 - **Každá schůzka = obchodní případ v Raynetu** (klient s adresou studia kvůli středisku v Pohodě + OP + událost). Rozšiřuje úzkou výjimku z „Raynet bez integrace“ — důvod: počty schůzek a poměr schůzka → obrat po designérech. Stále jen zápis vlastních záznamů, žádná obousměrná synchronizace.
-- **Dostupnost:** typy Volno (studio a/nebo doma) a Směna ve studiu; stálá směna dopočítaná z otevírací doby; čas na přesun kolem výjezdů. Kapacita studia (stoly) se neřeší.
+- **Dostupnost:** typy Na schůzky (studio a/nebo doma) a Směna ve studiu; stálá směna dopočítaná z otevírací doby; čas na přesun kolem výjezdů. Kapacita studia (stoly) se neřeší.
 - **Dostupnost designér nezruší** — vynucuje Firestore rules (jen admin; oprava překlepu do 30 min, `createdAt` musí být čas serveru, ať se okno nedá obejít).
 - **Práva k rezervacím** jsou v Cloud Function (`assertCanManage`): vlastní rezervace designér, všechny admin/HR a `reservations.manageAll`. Nová role se nezaváděla — příznak na `users/{slug}.reservations`, stejně úzce jako zbytek modulu.
 - **Pokrytí studia** počítá funkce (`pokryti`, `functions/rezervace/smeny.js`), ne klient — business logika ve functions; e-mailový alert přijde se sdílenou notifikační službou (F2).

@@ -27,7 +27,7 @@
         <a href="nastaveni.html" data-keep id="navSettings" class="hidden">Nastavení</a>
     </nav>
 
-    <p class="hint" style="margin-bottom:12px">V appce si vypisuješ, kdy můžeš: <strong>volno</strong> (schůzky ve studiu a/nebo u klienta) nebo <strong>směnu ve studiu</strong>. Kde nic nevypíšeš, tam tě klienti nevidí. Šedě je obsazenost z Raynetu.</p>
+    <p class="hint" style="margin-bottom:12px">V appce si vypisuješ, kdy můžeš: <strong>na schůzky</strong> (ve studiu a/nebo u klienta) nebo <strong>směnu ve studiu</strong>. Kde nic nevypíšeš, tam tě klienti nevidí. Šedě je obsazenost z Raynetu.</p>
 
     <div class="toolbar">
         <button class="btn btn--ghost btn--sm" id="prevWeek">←</button>
@@ -191,7 +191,7 @@ function itemHtml(it) {
         const types = blockTypes(b);
         const label = types.map(t => t === 'studio' ? `studio ${STUDIO_LABELS[b.studio] || b.studio}` : SERVICE_SHORT.home).join(' + ');
         const cls = types.length > 1 ? 'both' : types[0];
-        return `<div class="item item--${cls}" data-block="${b.id}">${time}<small>Volno · ${escapeHtml(label)}</small></div>`;
+        return `<div class="item item--${cls}" data-block="${b.id}">${time}<small>Na schůzky · ${escapeHtml(label)}</small></div>`;
     }
     if (it.kind === 'booking') {
         const b = it.data;
@@ -243,7 +243,7 @@ function openBlock(block, dayKeyArg) {
         <p class="hint">${escapeHtml(users[designerSlug]?.name || designerSlug)} · ${escapeHtml(fmtDay(pragueToDate(day)))}</p>
         <div class="choice-row" style="margin-top:14px">
             <label class="choice-opt"><input type="radio" name="fKind" value="flex" ${kind === 'flex' ? 'checked' : ''}>
-                <span><strong>Volno</strong><small>Můžu na schůzky — ve studiu, u klienta, nebo obojí.</small></span></label>
+                <span><strong>Na schůzky</strong><small>Klienti si mě můžou zarezervovat — ve studiu, u nich doma, nebo obojí.</small></span></label>
             <label class="choice-opt"><input type="radio" name="fKind" value="shift" ${kind === 'shift' ? 'checked' : ''}>
                 <span><strong>Směna ve studiu</strong><small>Držím studio otevřené. Klienti si mě můžou zarezervovat na konzultaci.</small></span></label>
         </div>

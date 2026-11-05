@@ -262,7 +262,7 @@ function designersHtml() {
     const card = (d) => `<button class="designer ${state.designer === d.slug ? 'selected' : ''} ${d.nextSlot ? '' : 'disabled'}" data-designer="${d.slug}" ${d.nextSlot ? '' : 'disabled'}>
         ${avatar(d)}<div><strong>${esc(d.name)}</strong>${d.position ? `<small>${esc(d.position)}</small>` : ''}
         ${d.bio ? `<small class="bio">${esc(d.bio)}</small>` : ''}
-        <small class="${d.nextSlot ? 'next' : ''}">${d.nextSlot ? `Nejbližší volno: ${esc(fmtShort(d.nextSlot))}` : 'V nejbližších týdnech plno'}</small></div></button>`;
+        <small class="${d.nextSlot ? 'next' : ''}">${d.nextSlot ? `Nejbližší volný termín: ${esc(fmtShort(d.nextSlot))}` : 'V nejbližších týdnech plno'}</small></div></button>`;
     const anyFree = state.designers.some(d => d.nextSlot);
     const any = list.length > 1 && anyFree ? `<button class="designer ${state.designer === 'any' ? 'selected' : ''}" data-designer="any">
         <span class="avatar">★</span><div><strong>Kdokoliv</strong><small>Nejbližší volný termín u kteréhokoliv designéra</small></div></button>` : '';

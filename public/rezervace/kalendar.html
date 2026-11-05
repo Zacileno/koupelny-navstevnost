@@ -52,7 +52,7 @@
 <script type="module">
 import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
 import {
-    DEMO, STUDIO_LABELS, TYPE_LABELS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
+    DEMO, DEMO_ADMIN, STUDIO_LABELS, TYPE_LABELS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
     pragueToDate, dateKey, timeKey, mondayKey, addDaysKey,
     DEMO_USERS, demoAvailability, demoBookings, demoBusy,
 } from './rezervace-common.js';
@@ -73,7 +73,7 @@ const $ = (id) => document.getElementById(id);
 
 async function init() {
     if (DEMO) {
-        me = 'demo'; isAdmin = true; users = DEMO_USERS;
+        me = 'demo'; isAdmin = DEMO_ADMIN; users = DEMO_USERS;
         $('userName').textContent = 'Demo mód';
     } else {
         const session = await requireAuth('/login.html');
@@ -87,7 +87,7 @@ async function init() {
         users = Object.fromEntries(usersSnap.docs.map(d => [d.id, d.data()]));
         if (cfgSnap.exists()) config = cfgSnap.data();
     }
-    if (DEMO) document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1');
+    if (DEMO) document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
     if (isAdmin) $('navSettings').classList.remove('hidden');
 
     const params = new URLSearchParams(location.search);

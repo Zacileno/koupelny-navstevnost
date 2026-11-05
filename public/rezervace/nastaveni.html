@@ -75,7 +75,7 @@ async function init() {
     if (DEMO) {
         users = DEMO_USERS; services = DEMO_SERVICES;
         $('userName').textContent = 'Demo mód';
-        document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1');
+        document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
     } else {
         const session = await requireAuth('/login.html');
         if (!session) return;

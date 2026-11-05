@@ -5,6 +5,8 @@
 import { initFirebase, CDN, isDemoMode } from '../shared/auth-common.js';
 
 export const DEMO = isDemoMode();
+// V demu jde vyzkoušet i pohled běžného designéra: ?demo=1&role=designer
+export const DEMO_ADMIN = DEMO && new URLSearchParams(location.search).get('role') !== 'designer';
 export const TZ = 'Europe/Prague';
 
 export const STUDIO_LABELS = { praha: 'Praha', brno: 'Brno', hradec: 'Hradec Králové', pardubice: 'Pardubice' };
@@ -169,7 +171,7 @@ export function demoBusy() {
 }
 
 function demoAkce(action, data) {
-    if (action === 'info') return { raynetConfigured: true, raynetMock: false, isAdmin: true, manageAll: true, slug: 'demo' };
+    if (action === 'info') return { raynetConfigured: true, raynetMock: false, isAdmin: DEMO_ADMIN, manageAll: DEMO_ADMIN, slug: 'demo' };
     if (action === 'sloty') {
         const slots = [];
         for (let i = 1; i < 6; i++) for (const h of [9, 10, 11]) {

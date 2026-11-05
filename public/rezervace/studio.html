@@ -55,7 +55,7 @@
 <script type="module">
 import { requireAuth, signOutUser, initFirebase, CDN } from '../shared/auth-common.js';
 import {
-    DEMO, akce, STUDIO_LABELS, STUDIOS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
+    DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, STUDIOS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
     pragueToDate, dateKey, mondayKey, addDaysKey,
     DEMO_USERS, demoAvailability, demoBookings,
 } from './rezervace-common.js';
@@ -74,10 +74,10 @@ const blockTypes = (b) => b.kind === 'shift' ? ['studio'] : (b.serviceTypes || (
 async function init() {
     let mySlug = null;
     if (DEMO) {
-        users = DEMO_USERS; isAdmin = true;
+        users = DEMO_USERS; isAdmin = DEMO_ADMIN;
         config = { studios: { praha: { openingHours: { 1: ['09:00', '18:00'], 2: ['09:00', '18:00'], 3: ['09:00', '18:00'], 4: ['09:00', '18:00'], 5: ['09:00', '18:00'] } } } };
         $('userName').textContent = 'Demo mód';
-        document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1');
+        document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
     } else {
         const session = await requireAuth('/login.html');
         if (!session) return;

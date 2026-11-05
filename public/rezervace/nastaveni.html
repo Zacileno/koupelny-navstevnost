@@ -13,6 +13,11 @@
         .hours { display: grid; grid-template-columns: 110px repeat(7, minmax(0, 1fr)); gap: 4px; font-size: 12px; align-items: center; }
         .hours input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 5px; font-family: var(--font); font-size: 11px; }
         .hours .hd { color: var(--text-dim); font-weight: 700; text-align: center; }
+        /* Ikona „i“ s vysvětlivkou u sloupců služeb */
+        .info { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--blue-border); background: var(--blue-dim); color: var(--blue); font-size: 10px; font-weight: 700; font-style: normal; text-transform: lowercase; letter-spacing: 0; cursor: help; vertical-align: 1px; margin-left: 3px; }
+        .info:hover, .info:focus { outline: none; border-color: var(--blue); background: var(--blue); color: #fff; }
+        .tip { position: fixed; z-index: 300; width: 260px; background: var(--surface3); color: var(--text); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; font-weight: 500; line-height: 1.45; text-transform: none; letter-spacing: 0; box-shadow: var(--shadow); pointer-events: none; }
+        .tip[hidden] { display: none; }
         @media (max-width: 760px) { .hours { grid-template-columns: 1fr; } .hours .hd { display: none; } }
     </style>
 </head>
@@ -90,6 +95,28 @@ async function init() {
     $('saveConfig').addEventListener('click', saveConfig);
 }
 
+// ── vysvětlivky u ikony „i“ ──
+// Plovoucí bublina (position: fixed), ať ji neořízne tabulka se scrollem.
+// Hover na desktopu, klik/focus na mobilu.
+let tipEl = null;
+function showTip(target) {
+    tipEl ??= Object.assign(document.createElement('div'), { className: 'tip', role: 'tooltip' });
+    if (!tipEl.isConnected) document.body.appendChild(tipEl);
+    tipEl.textContent = target.dataset.tip;
+    const r = target.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - 130), window.innerWidth - 268);
+    tipEl.style.left = `${left}px`;
+    tipEl.style.top = `${r.bottom + 6}px`;
+    tipEl.hidden = false;
+}
+const hideTip = () => { if (tipEl) tipEl.hidden = true; };
+document.addEventListener('mouseover', e => { const t = e.target.closest?.('[data-tip]'); t ? showTip(t) : hideTip(); });
+// Klik na ikonu (mobil) — focus sám neproběhne u všech prohlížečů.
+document.addEventListener('click', e => { const t = e.target.closest?.('[data-tip]'); if (t) { t.focus(); showTip(t); } });
+document.addEventListener('focusin', e => { const t = e.target.closest?.('[data-tip]'); if (t) showTip(t); });
+document.addEventListener('focusout', hideTip);
+document.addEventListener('scroll', hideTip, true);
+
 // ── služby ──
 
 // [pole, nadpis, typ, vysvětlivka pod ikonou „i“]
@@ -111,7 +138,7 @@ function renderServices() {
         if (type === 'bool') return `<input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}>`;
         return `<input type="${type}" data-k="${key}" value="${escapeHtml(v ?? '')}" ${type === 'number' ? 'min="0"' : ''}>`;
     };
-    $('servicesTbl').innerHTML = `<tr>${SERVICE_COLS.map(c => `<th>${c[1]} ${infoIcon(c[3])}</th>`).join('')}<th></th></tr>` +
+    $('servicesTbl').innerHTML = `<tr>${SERVICE_COLS.map(c => `<th>${c[1]}&nbsp;${infoIcon(c[3])}</th>`).join('')}<th></th></tr>` +
         services.map(s => `<tr data-id="${s.id}">${SERVICE_COLS.map(c => `<td>${cell(s, c)}</td>`).join('')}
             <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td></tr>`).join('');
     $('servicesTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveService(btn.closest('tr'))));

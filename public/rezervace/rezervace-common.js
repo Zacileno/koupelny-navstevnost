@@ -45,26 +45,6 @@ export async function akce(action, data = {}) {
     return res.data;
 }
 
-// ── vysvětlivky u ikony „i“ ──
-// Plovoucí bublina (position: fixed), ať ji neořízne tabulka se scrollem.
-// Hover na desktopu, klik/focus na mobilu.
-let tipEl = null;
-function showTip(target) {
-    tipEl ??= Object.assign(document.createElement('div'), { className: 'tip', role: 'tooltip' });
-    if (!tipEl.isConnected) document.body.appendChild(tipEl);
-    tipEl.textContent = target.dataset.tip;
-    const r = target.getBoundingClientRect();
-    const left = Math.min(Math.max(8, r.left + r.width / 2 - 130), window.innerWidth - 268);
-    tipEl.style.left = `${left}px`;
-    tipEl.style.top = `${r.bottom + 6}px`;
-    tipEl.hidden = false;
-}
-const hideTip = () => { if (tipEl) tipEl.hidden = true; };
-document.addEventListener('mouseover', e => { const t = e.target.closest?.('[data-tip]'); t ? showTip(t) : hideTip(); });
-document.addEventListener('focusin', e => { const t = e.target.closest?.('[data-tip]'); if (t) showTip(t); });
-document.addEventListener('focusout', hideTip);
-document.addEventListener('scroll', hideTip, true);
-
 // ── formátování (vždy pražský čas) ──
 export const toDate = (ts) => ts?.toDate?.() ?? (ts ? new Date(ts) : null);
 export function fmtDateTime(ts) {

@@ -163,8 +163,9 @@ async function saveService(tr) {
 
 function renderDesigners() {
     const list = Object.entries(users)
-        // Všichni aktivní (ne externí) — i ne-designéři kvůli „Spravuje všechny rezervace“ (CX).
-        .filter(([, u]) => u.active !== false && !u.external)
+        // Adresář lidí (users/{slug} s oddělením — ne staré users/{uid} z Adaptace), bez
+        // externích. `active` řídí jen Návštěvnost, proto i neaktivní s rolí/rezervacemi.
+        .filter(([, u]) => u.department && !u.external && (u.active !== false || u.platformRole || u.reservations))
         .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'cs'));
     $('designersTbl').innerHTML = `<tr><th>Člověk</th><th>Rezervace</th><th>Studia (konzultace)</th><th>Oblasti (návrh doma)</th><th>Služby</th><th>Raynet ID</th><th></th></tr>` +
         list.map(([slug, u]) => {

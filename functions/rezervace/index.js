@@ -94,11 +94,12 @@ async function loadService(db, id) {
   return { id: snap.id, ...snap.data() };
 }
 
+// Kdo jde rezervovat, rozhoduje jen přepínač reservations.enabled (Nastavení).
+// Pole `active` ne — řídí jen výběr obchodníka v Návštěvnosti (CLAUDE.md).
+// Při odchodu člověka vypne rezervace offboardEmployee.
 async function loadDesigners(db) {
   const snap = await db.collection("users").where("reservations.enabled", "==", true).get();
-  return snap.docs
-    .map((d) => ({ slug: d.id, name: d.data().name, position: d.data().position, active: d.data().active, reservations: d.data().reservations || {} }))
-    .filter((u) => u.active !== false);
+  return snap.docs.map((d) => ({ slug: d.id, name: d.data().name, position: d.data().position, reservations: d.data().reservations || {} }));
 }
 
 // Bloky/rezervace se načítají jedním rozsahovým dotazem podle začátku (bez

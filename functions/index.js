@@ -352,6 +352,10 @@ exports.offboardEmployee = onCall({ region: "europe-central2" }, async (request)
   }
 
   await userRef.set({ active: false }, { merge: true });
+  // Rezervace (modul Rezervace): kdo odešel, nesmí dostávat nové schůzky.
+  if (userSnap.data().reservations?.enabled) {
+    await userRef.update({ "reservations.enabled": false });
+  }
 
   const uid = userSnap.data().uid;
   if (uid) {

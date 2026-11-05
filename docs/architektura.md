@@ -189,3 +189,21 @@ Kolekce `vacations`:
 - **Idempotence:** ID dokumentu `meta-<leadId>` + `create()` — opakované doručení stejného leadu vrátí 200 `duplicate: true`, druhý záznam nevznikne (pop-up vlastní ID nemá, tam zůstává jen `duplicateOfId`).
 - **SLA stejné jako u pop-upu** (výchozí, k potvrzení s Terkou).
 - V Make zůstal původní nepoužitý modul „Webhooky – Odpovědět na webhook“ (druhá větev routeru) — nesmazán, nijak nevadí.
+
+## 2026-11-05 — Modul Rezervace: vlastní systém místo Reservanta
+
+**Kontext:** Obousměrná synchronizace Reservanto ↔ Raynet přes Make padá na edge casech a Reservanto neumí oddělit pravidla pro dvě služby (předstih 2 dny u návrhu doma platil i pro showroom). Od 01/2027 studia jedou na rezervaci (od 1. 12. 2026 hybridně), je potřeba měřit kampaň → rezervace → schůzka. Detailní zadání: `docs/rezervace-spec.md`, průzkum Raynet API a Reservanta: `docs/rezervace-pruzkum.md`.
+
+**Rozhodnutí (Martin, call s Eliškou 2026-11-03 a 2026-11-05):**
+- Vlastní rezervační systém na platformě — tím padá „nerozhodnuto“ ze Strategického kontextu 2027.
+- **Kdo co vlastní:** dostupnost designérů (bloky podle služby) a 1. schůzka (web, telefon, CX, lead) včetně přesunu a zrušení = platforma. 2. a další schůzky = Raynet jako dnes. Pravidlo pro designéry: „V appce si vypisuješ, kdy můžeš. Schůzky plánuješ, kde jsi zvyklý.“
+- **Úzká výjimka z „Raynet bez integrace“:** zápis kontaktu (jen když neexistuje) a události pro schůzku vzniklou na platformě + úprava/zrušení jen těchto vlastních událostí; čtení jen časů událostí designérů (od–do, vlastník). Žádné čtení obchodních případů ani obsahu cizích událostí, žádná úprava cizích záznamů, žádná obousměrná synchronizace.
+- Notifikace (e-mail/SMS) přes SmartEmailing — až F2, jako sdílená notifikační služba. **Bez F2 se Reservanto nevypíná.**
+
+**Technická rozhodnutí F1:**
+- Zápis rezervací jen přes Cloud Functions (`res_bookings` má v rules `allow write: if false`), aby každá změna prošla validací, historií a Raynet pushem. Veřejná stránka `public/rezervovat/` je první frontend bez přihlášení — nečte Firestore vůbec, jen `volneTerminy`/`vytvoritRezervaci` (CORS jen pro naše domény + koupelnysyrovy.cz, honeypot, limit na IP a na telefon).
+- Souběh dvou rezervací na stejný čas řeší transakce se zámkovým dokumentem `res_locks/{designér}_{den}` (dotazy bez složených indexů, objem je malý).
+- Slotovací logika je čistý modul s unit testy (`functions/rezervace/sloty.js`), pražský čas a svátky ve sdílené utilitě `functions/shared/cas.js` (Leady na ni přepojené beze změny chování, klientská kopie `public/leady/leady-sla.js` zůstala).
+- Body ⚠️ ze specu (délky, předstih, horizont, entita a režim zrušení v Raynetu, …) jsou konfigurace (`res_services`, `config/rezervace`) s výchozími hodnotami, ne kód.
+- Raynet: Basic auth + `X-Instance-Name`, credentials v `config/raynet` (vzor `config/leadWebhook`, Secret Manager ze stejných důvodů ne). Vlastní událost se pozná podle `raynet.eventId` uloženého u rezervace (+ extId `platforma-rezervace:<id>` jako pojistka). Obsazenost se čte každých 10 min (`onSchedule`, první v projektu) z Událostí i Schůzek; webhooky Raynetu by to šly později nahradit. Raynet chyba rezervaci nikdy nezastaví — push se opakuje z naplánované funkce.
+- Interní operace jsou jedna `onCall` funkce `rezervaceAkce` s parametrem `action` (méně Cloud Run služeb = méně ručních IAM kroků).

@@ -7,7 +7,7 @@
 // Sloty se zarovnávají na pražský "nástěnný" čas po `stepMin` (výchozí 30 min),
 // takže i přes přechod letního/zimního času začínají v :00 a :30.
 
-const { pragueParts, fromPrague, isHoliday, isWorkingDay, nextDay } = require("../shared/cas");
+const { pragueParts, fromPrague, isHoliday, nextDay } = require("../shared/cas");
 
 const MIN_MS = 60000;
 
@@ -16,28 +16,17 @@ const BLOCKING_STATUSES = ["requested", "confirmed", "done", "no_show"];
 
 const toMs = (v) => (v instanceof Date ? v.getTime() : typeof v === "number" ? v : v?.toMillis ? v.toMillis() : new Date(v).getTime());
 
-// Půlnoc pražského dne, který je `days` dní po dni `date` (kalendářně, nebo
-// jen pracovní dny). days = 0 → půlnoc dne `date`.
-function startOfPragueDayAfter(date, days, mode = "calendar") {
+// Půlnoc pražského dne, který je `days` dní po dni `date` (pro horizont).
+function startOfPragueDayAfter(date, days) {
   let { y, m, d } = pragueParts(date);
-  let left = days;
-  while (left > 0) {
-    ({ y, m, d } = nextDay(y, m, d));
-    if (mode !== "working" || isWorkingDay(y, m, d)) left -= 1;
-  }
+  for (let i = 0; i < days; i++) ({ y, m, d } = nextDay(y, m, d));
   return fromPrague(y, m, d, 0);
 }
 
-// Nejdřívější možný začátek rezervace podle předstihu služby.
-// minLeadMinutes — minimální předstih v minutách (studio: 60),
-// minLeadDays — nejdřív N-tý den po dnešku od půlnoci (doma: 2), leadDayMode
-// 'calendar' (výchozí) nebo 'working'. Platí to přísnější z obou.
+// Nejdřívější možný začátek rezervace: teď + minimální předstih v hodinách
+// (studio 1 h, doma 48 h). Jedno číslo místo minut + dnů — tak to vidí i admin.
 function earliestStart(service, now) {
-  let t = toMs(now) + (service.minLeadMinutes || 0) * MIN_MS;
-  if (service.minLeadDays > 0) {
-    t = Math.max(t, startOfPragueDayAfter(new Date(toMs(now)), service.minLeadDays, service.leadDayMode).getTime());
-  }
-  return t;
+  return toMs(now) + (service.minLeadHours || 0) * 60 * MIN_MS;
 }
 
 // Konec horizontu: půlnoc po (dnes + horizonDays) pražského času.
@@ -62,7 +51,7 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 
 /**
  * @param {object} p
- * @param {object} p.service          { id, type:'studio'|'home', durationMin, minLeadMinutes, minLeadDays, leadDayMode, horizonDays, bufferMin }
+ * @param {object} p.service          { id, type:'studio'|'home', durationMin, minLeadHours, horizonDays, bufferMin }
  * @param {Array}  p.availability     [{ designerSlug, serviceType, studio?, start, end }]
  * @param {Array}  p.bookings         [{ id?, designerSlug, start, end, status }]
  * @param {object} p.busy             { [designerSlug]: [{ start, end }] } — obsazenost z Raynetu

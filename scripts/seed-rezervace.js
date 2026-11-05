@@ -38,9 +38,7 @@ const SERVICES = {
     type: 'studio',
     description: 'Osobní konzultace s designérem v našem studiu.',
     durationMin: 60,          // ⚠️
-    minLeadMinutes: 60,       // ⚠️ "kdykoliv" = za 1 hodinu
-    minLeadDays: 0,
-    leadDayMode: 'calendar',
+    minLeadHours: 1,          // ⚠️ "kdykoliv" = za 1 hodinu
     horizonDays: 60,          // ⚠️
     bufferMin: 0,
     requiresConfirmation: false,
@@ -53,9 +51,7 @@ const SERVICES = {
     type: 'home',
     description: 'Designér přijede k vám, zaměří prostor a navrhne koupelnu na místě.',
     durationMin: 120,         // ⚠️
-    minLeadMinutes: 0,
-    minLeadDays: 2,
-    leadDayMode: 'calendar',  // ⚠️ kalendářní, nebo pracovní dny
+    minLeadHours: 48,         // nejdřív za 2 dny = 48 hodin od teď
     horizonDays: 60,          // ⚠️
     bufferMin: 0,
     requiresConfirmation: true, // ⚠️ requested → CX potvrdí po úhradě zálohy

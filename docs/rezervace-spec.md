@@ -33,7 +33,7 @@
 | | Konzultace ve studiu | Návrh u vás doma |
 |---|---|---|
 | Místo | konkrétní studio | adresa klienta |
-| Nejdřívější rezervace | ⚠️ výchozí za 1 hodinu („kdykoliv“) | **nejdřív za 2 dny** (kalendářní; ⚠️ nebo pracovní?) |
+| Nejdřívější rezervace (předstih v hodinách) | ⚠️ výchozí 1 h („kdykoliv“) | **48 h** (2 dny od teď) |
 | Délka | ⚠️ výchozí 60 min | ⚠️ výchozí 120 min |
 | Cena | zdarma | 4 990 Kč vč. DPH (konfigurace, jen zobrazení) |
 | Stav po odeslání klientem | `confirmed` | `requested` → CX potvrdí po telefonu a úhradě zálohy |
@@ -88,7 +88,7 @@
 
 ## 8. Datový model
 
-**`res_services/{id}`** — `name`, `type` (`studio`/`home`), `durationMin`, `minLeadMinutes`, `horizonDays`, `requiresConfirmation`, `priceText`, `active`, `order`
+**`res_services/{id}`** — `name`, `type` (`studio`/`home`), `durationMin`, `minLeadHours`, `horizonDays`, `bufferMin`, `requiresConfirmation`, `priceText`, `active`, `order`
 
 **`res_availability/{id}`** — `designerSlug`, `serviceType` (`studio`/`home`), `studio` (jen u studia), `start`, `end`, `createdBy`, `createdAt`
 
@@ -154,7 +154,7 @@
 ## 13. Otevřené body k odsouhlasení (⚠️)
 
 1. Návrh doma jako `requested` → potvrzení CX po úhradě zálohy, platba mimo systém.
-2. Předstih: studio 1 h, doma 2 dny. Kalendářní, nebo pracovní dny?
+2. ~~Předstih: kalendářní, nebo pracovní dny?~~ **Rozhodnuto 2026-11-05 (Martin): předstih se zadává v hodinách** (studio 1 h, doma 48 h), bez rozlišení pracovních dnů — jednodušší na nastavení.
 3. Délky služeb 60 / 120 min.
 4. Horizont 60 dní.
 5. Adresa hromadného rezervačního e-mailu.

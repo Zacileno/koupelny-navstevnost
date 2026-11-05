@@ -126,8 +126,8 @@ function demoAt(dayOffset, hour, min = 0) {
 }
 
 export const DEMO_SERVICES = [
-    { id: 'konzultace-studio', name: 'Konzultace ve studiu', type: 'studio', durationMin: 60, minLeadMinutes: 60, minLeadDays: 0, leadDayMode: 'calendar', horizonDays: 60, bufferMin: 0, requiresConfirmation: false, priceText: 'zdarma', active: true, order: 1 },
-    { id: 'navrh-doma', name: 'Návrh u vás doma', type: 'home', durationMin: 120, minLeadMinutes: 0, minLeadDays: 2, leadDayMode: 'calendar', horizonDays: 60, bufferMin: 0, requiresConfirmation: true, priceText: '4 990 Kč vč. DPH', active: true, order: 2 },
+    { id: 'konzultace-studio', name: 'Konzultace ve studiu', type: 'studio', durationMin: 60, minLeadHours: 1, horizonDays: 60, bufferMin: 0, requiresConfirmation: false, priceText: 'zdarma', active: true, order: 1 },
+    { id: 'navrh-doma', name: 'Návrh u vás doma', type: 'home', durationMin: 120, minLeadHours: 48, horizonDays: 60, bufferMin: 0, requiresConfirmation: true, priceText: '4 990 Kč vč. DPH', active: true, order: 2 },
 ];
 
 export const DEMO_USERS = {

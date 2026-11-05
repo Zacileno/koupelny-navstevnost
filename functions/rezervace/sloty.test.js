@@ -8,8 +8,8 @@ const { fromPrague } = require("../shared/cas");
 const P = (y, m, d, h, min = 0) => fromPrague(y, m, d, h * 60 + min);
 const hhmm = (date) => date.toLocaleTimeString("cs-CZ", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit" });
 
-const STUDIO = { id: "konzultace-studio", type: "studio", durationMin: 60, minLeadMinutes: 60, horizonDays: 60 };
-const HOME = { id: "navrh-doma", type: "home", durationMin: 120, minLeadMinutes: 0, minLeadDays: 2, leadDayMode: "calendar", horizonDays: 60 };
+const STUDIO = { id: "konzultace-studio", type: "studio", durationMin: 60, minLeadHours: 1, horizonDays: 60 };
+const HOME = { id: "navrh-doma", type: "home", durationMin: 120, minLeadHours: 48, horizonDays: 60 };
 
 const studioBlock = (start, end, slug = "jana", studio = "praha") => ({ designerSlug: slug, serviceType: "studio", studio, start, end });
 const homeBlock = (start, end, slug = "jana") => ({ designerSlug: slug, serviceType: "home", start, end });
@@ -21,7 +21,7 @@ test("studio: krok 30 min, délka 60 min, jen v bloku", () => {
   assert.equal(slots[0].end - slots[0].start, 60 * 60000);
 });
 
-test("studio: žádný denní předstih navíc — jen minLeadMinutes (1 h)", () => {
+test("studio: předstih jen 1 hodina", () => {
   const now = P(2026, 11, 10, 9, 10); // út 9:10
   const slots = computeSlots({ service: STUDIO, availability: [studioBlock(P(2026, 11, 10, 9), P(2026, 11, 10, 13))], now, studio: "praha" });
   // 9:10 + 60 min = 10:10 → první zarovnaný slot 10:30, ještě týž den.
@@ -35,25 +35,16 @@ test("studio: blok pro jiné studio se nenabízí", () => {
   assert.equal(slots.length, 0);
 });
 
-test("doma: předstih 2 kalendářní dny (od půlnoci)", () => {
-  const now = P(2026, 11, 11, 15); // st 11. 11. 15:00 → nejdřív pá 13. 11. 0:00
+test("doma: předstih 48 hodin", () => {
+  const now = P(2026, 11, 11, 15); // st 11. 11. 15:00 → nejdřív pá 13. 11. 15:00
   const availability = [
     homeBlock(P(2026, 11, 12, 8), P(2026, 11, 12, 16)), // čt — moc brzy
-    homeBlock(P(2026, 11, 13, 8), P(2026, 11, 13, 12)), // pá — OK
+    homeBlock(P(2026, 11, 13, 8), P(2026, 11, 13, 19)), // pá — až od 15:00
   ];
   const slots = computeSlots({ service: HOME, availability, now });
-  assert.ok(slots.length > 0);
-  assert.ok(slots.every((s) => s.start >= P(2026, 11, 13, 0)));
-  assert.equal(hhmm(slots[0].start), "08:00");
-  assert.equal(slots[0].start.getTime(), P(2026, 11, 13, 8).getTime());
-});
-
-test("doma: předstih 2 pracovní dny přeskočí víkend i svátek", () => {
-  const svc = { ...HOME, leadDayMode: "working" };
-  // čt 15. 10. 2026 → pá 16. (1), [so, ne], po 19. (2) → nejdřív po 19. 10.
-  assert.equal(earliestStart(svc, P(2026, 10, 15, 10)), P(2026, 10, 19, 0).getTime());
-  // po 26. 10. → út 27. (1), st 28. 10. je svátek, čt 29. (2)
-  assert.equal(earliestStart(svc, P(2026, 10, 26, 10)), P(2026, 10, 29, 0).getTime());
+  assert.equal(slots[0].start.getTime(), P(2026, 11, 13, 15).getTime());
+  assert.deepEqual(slots.map((s) => hhmm(s.start)), ["15:00", "15:30", "16:00", "16:30", "17:00"]);
+  assert.equal(earliestStart(HOME, now), P(2026, 11, 13, 15).getTime());
 });
 
 test("kolize s rezervací na platformě (vč. bufferu)", () => {

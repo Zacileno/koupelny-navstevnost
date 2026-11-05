@@ -182,6 +182,6 @@
 11. Souhlas se zpracováním osobních údajů ve veřejném formuláři — ve F1 informativní text s odkazem na zásady (`config/rezervace.privacyUrl`), bez checkboxu.
 12. Která entita Raynetu — Událost, nebo Schůzka (dnešní Make scénář)? Výchozí Událost, `config/rezervace.raynet.writeEntity`. Obsazenost se čte z obou.
 13. Zrušení v Raynetu smazáním (výchozí), nebo přejmenováním — `config/rezervace.raynet.cancelMode`.
-15. **Den, kdy musí být studio otevřené — může mít designér, který tam má směnu, ten den i návrh doma?** Dnes: během směny ne, před/po směně ano (s časem na přesun).
+15. ~~Den, kdy musí být studio otevřené — může mít designér se směnou ten den i návrh doma?~~ **Rozhodnuto 2026-11-05 (Martin): ano, mimo směnu** (během směny ne, před/po ní ano, s časem na přesun).
 16. Čas na přesun kolem návrhu doma — 60 min stačí, nebo podle oblasti?
 14. ~~Oblasti pro návrh doma — 4 podle studií, nebo jemněji?~~ **Rozhodnuto 2026-11-05 (Martin): stačí 4 oblasti podle studií.**

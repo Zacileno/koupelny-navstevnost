@@ -82,7 +82,7 @@
   - `vytvoritRezervaci` (POST): validace, honeypot, kontrola kolize v transakci, živá kontrola Raynetu, zápis.
 - **Přímé odkazy:** `?sluzba=…&studio=…&oblast=…&designer=…` (pro profily designérů a kampaně, s UTM).
 - **Výběr designéra (doplněno 2026-11-05, strategie tlačit konkrétní designéry):** po výběru studia / oblasti klient vybírá designéra — karta s fotkou, pozicí, krátkým bio a nejbližším volným termínem, plus volba „Kdokoliv“. Odkaz `?designer=` nabídne jen služby, studia a oblasti daného designéra. Veřejný profil (`reservations.publicPosition`, `bio`, `photoUrl`) spravuje admin v nastavení.
-- **Geografie návrhu doma:** klient vybere oblast („Kde bydlíte?“), nabídnou se jen designéři, kteří tam jezdí (`reservations.homeRegions`, výchozí = jejich studia). Oblasti jsou konfigurace (`config/rezervace.homeRegions`, ⚠️ výchozí 4 oblasti podle studií). Hlídá se i při zápisu rezervace.
+- **Geografie návrhu doma:** klient vybere oblast („Kde bydlíte?“), nabídnou se jen designéři, kteří tam jezdí (`reservations.homeRegions`, výchozí = jejich studia). Oblasti jsou konfigurace (`config/rezervace.homeRegions`, 4 oblasti podle studií — rozhodnuto 2026-11-05). Hlídá se i při zápisu rezervace.
 - UTM a zdroj se ukládají k rezervaci kvůli měření kampaň → rezervace.
 - Vložení na koupelnysyrovy.cz (odkaz nebo iframe) a CTA „Rezervovat osobní konzultaci“ řeší Zacíleno, až bude systém v pilotu.
 
@@ -169,4 +169,4 @@
 11. Souhlas se zpracováním osobních údajů ve veřejném formuláři — ve F1 informativní text s odkazem na zásady (`config/rezervace.privacyUrl`), bez checkboxu.
 12. Která entita Raynetu — Událost, nebo Schůzka (dnešní Make scénář)? Výchozí Událost, `config/rezervace.raynet.writeEntity`. Obsazenost se čte z obou.
 13. Zrušení v Raynetu smazáním (výchozí), nebo přejmenováním — `config/rezervace.raynet.cancelMode`.
-14. Oblasti pro návrh doma — stačí 4 oblasti podle studií, nebo jemněji (kraje / PSČ)?
+14. ~~Oblasti pro návrh doma — 4 podle studií, nebo jemněji?~~ **Rozhodnuto 2026-11-05 (Martin): stačí 4 oblasti podle studií.**

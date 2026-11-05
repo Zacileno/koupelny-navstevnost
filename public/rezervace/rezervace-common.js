@@ -47,6 +47,32 @@ export async function akce(action, data = {}) {
     return res.data;
 }
 
+// ── vlastní parametry designéra ──
+// Výchozí hodnoty dává admin u služby; designér (nebo admin za něj) je může
+// přepsat jen pro sebe. Prázdné pole = výchozí. Cenu a potvrzování CX ne.
+export const OVERRIDE_FIELDS = [
+    ['durationMin', 'Délka (min)'], ['minLeadHours', 'Nejdřív za (h)'], ['horizonDays', 'Nejpozději za (dní)'], ['bufferMin', 'Pauza (min)'],
+];
+
+export function overridesFormHtml(services, overrides = {}, travelMin = null, defaultTravel = 60) {
+    const rows = services.map(sv => `<tr><td>${escapeHtml(sv.name)}</td>${OVERRIDE_FIELDS.map(([k]) =>
+        `<td><input type="number" min="0" data-ov-service="${sv.id}" data-ov-key="${k}" placeholder="${escapeHtml(sv[k] ?? '')}" value="${escapeHtml(overrides?.[sv.id]?.[k] ?? '')}"></td>`).join('')}</tr>`).join('');
+    return `<div class="table-wrap"><table class="tbl ov-tbl"><tr><th>Služba</th>${OVERRIDE_FIELDS.map(([, l]) => `<th>${l}</th>`).join('')}</tr>${rows}</table></div>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin-top:6px">Čas na přesun u návrhu doma (min):
+            <input type="number" min="0" step="15" data-ov-travel placeholder="${escapeHtml(defaultTravel)}" value="${escapeHtml(travelMin ?? '')}" style="width:80px"></label>
+        <p class="hint">Šedé číslo = výchozí od admina. Vyplň jen to, co chceš mít jinak.</p>`;
+}
+
+export function readOverrides(root) {
+    const overrides = {};
+    root.querySelectorAll('[data-ov-service]').forEach(inp => {
+        if (inp.value === '') return;
+        (overrides[inp.dataset.ovService] ||= {})[inp.dataset.ovKey] = Number(inp.value);
+    });
+    const t = root.querySelector('[data-ov-travel]')?.value;
+    return { overrides, travelMin: t === '' || t == null ? null : Number(t) };
+}
+
 // ── formátování (vždy pražský čas) ──
 export const toDate = (ts) => ts?.toDate?.() ?? (ts ? new Date(ts) : null);
 export function fmtDateTime(ts) {

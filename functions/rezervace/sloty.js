@@ -83,35 +83,58 @@ function gapMs(newType, otherType, bufMs, travelMs) {
  * @param {boolean} [p.blockHolidays=true] ve státní svátek nenabízet nic
  * @param {string} [p.excludeBookingId] při přesunu ignorovat přesouvanou rezervaci
  * @param {number} [p.travelMin=0]    čas na přesun před a po návrhu u klienta doma
+ * @param {Function} [p.serviceFor]   slug → služba s vlastními parametry designéra (serviceForDesigner)
+ * @param {Function} [p.travelFor]    slug → čas na přesun designéra (min)
  * @returns {Array<{ start: Date, end: Date, designerSlug: string, studio: string|null }>}
  */
+// Parametry, které si designér smí nastavit sám pro sebe (výchozí dává admin
+// u služby). Cenu, potvrzování CX, název a aktivitu služby mění jen admin.
+const OVERRIDABLE = ["durationMin", "minLeadHours", "horizonDays", "bufferMin"];
+
+// Služba s vlastními parametry designéra: reservations.overrides[serviceId].
+function serviceForDesigner(service, overrides) {
+  const own = overrides?.[service.id] || {};
+  const out = { ...service };
+  for (const k of OVERRIDABLE) if (Number.isFinite(own[k])) out[k] = own[k];
+  return out;
+}
+
 function computeSlots(p) {
   const { service } = p;
   const stepMin = p.stepMin || 30;
-  const durMs = service.durationMin * MIN_MS;
-  const bufMs = (service.bufferMin || 0) * MIN_MS;
-  const travelMs = (p.travelMin || 0) * MIN_MS;
   const blockHolidays = p.blockHolidays !== false;
-
-  let minStart = p.ignoreLead ? toMs(p.now) : earliestStart(service, p.now);
-  let maxStart = horizonEnd(service, p.now);
-  if (p.from) minStart = Math.max(minStart, toMs(p.from));
-  if (p.to) maxStart = Math.min(maxStart, toMs(p.to));
-
   const allowed = p.designers ? new Set(p.designers) : null;
 
-  // Obsazené intervaly po designérech (rezervace + Raynet), rozšířené o pauzu
-  // a u výjezdů o čas na přesun.
+  // Parametry po designérech: výchozí ze služby, případně jeho vlastní
+  // (p.serviceFor / p.travelFor). Počítá se jednou na designéra.
+  const per = {};
+  const paramsOf = (slug) => {
+    if (per[slug]) return per[slug];
+    const svc = p.serviceFor ? p.serviceFor(slug) : service;
+    let minStart = p.ignoreLead ? toMs(p.now) : earliestStart(svc, p.now);
+    let maxStart = horizonEnd(svc, p.now);
+    if (p.from) minStart = Math.max(minStart, toMs(p.from));
+    if (p.to) maxStart = Math.min(maxStart, toMs(p.to));
+    const travel = p.travelFor ? p.travelFor(slug) : p.travelMin;
+    per[slug] = {
+      durMs: svc.durationMin * MIN_MS,
+      bufMs: (svc.bufferMin || 0) * MIN_MS,
+      travelMs: (travel || 0) * MIN_MS,
+      minStart, maxStart,
+    };
+    return per[slug];
+  };
+
+  // Obsazené intervaly po designérech (rezervace + Raynet); pauza a čas na
+  // přesun se přičtou až při kontrole podle parametrů daného designéra.
   const taken = {};
   for (const b of p.bookings || []) {
     if (!BLOCKING_STATUSES.includes(b.status)) continue;
     if (p.excludeBookingId && b.id === p.excludeBookingId) continue;
-    const gap = gapMs(service.type, b.serviceType, bufMs, travelMs);
-    (taken[b.designerSlug] ||= []).push([toMs(b.start) - gap, toMs(b.end) + gap]);
+    (taken[b.designerSlug] ||= []).push([toMs(b.start), toMs(b.end), b.serviceType]);
   }
   for (const [slug, intervals] of Object.entries(p.busy || {})) {
-    const gap = gapMs(service.type, null, bufMs, travelMs);
-    for (const i of intervals || []) (taken[slug] ||= []).push([toMs(i.start) - gap, toMs(i.end) + gap]);
+    for (const i of intervals || []) (taken[slug] ||= []).push([toMs(i.start), toMs(i.end), null]);
   }
 
   const seen = new Set();
@@ -121,6 +144,11 @@ function computeSlots(p) {
     if (service.type === "studio" && p.studio && a.studio !== p.studio) continue;
     if (allowed && !allowed.has(a.designerSlug)) continue;
 
+    const { durMs, bufMs, travelMs, minStart, maxStart } = paramsOf(a.designerSlug);
+    const busy = (taken[a.designerSlug] || []).map(([s, e, type]) => {
+      const gap = gapMs(service.type, type, bufMs, travelMs);
+      return [s - gap, e + gap];
+    });
     const blockStart = toMs(a.start);
     const blockEnd = toMs(a.end);
     for (let t = alignUp(Math.max(blockStart, minStart), stepMin); t + durMs <= blockEnd && t < maxStart; t += stepMin * MIN_MS) {
@@ -129,7 +157,6 @@ function computeSlots(p) {
         const { y, m, d } = pragueParts(new Date(t));
         if (isHoliday(y, m, d)) continue;
       }
-      const busy = taken[a.designerSlug] || [];
       if (busy.some(([s, e]) => overlaps(t, end, s, e))) continue;
       const key = `${a.designerSlug}|${t}`;
       if (seen.has(key)) continue; // překrývající se bloky téhož designéra
@@ -150,6 +177,8 @@ function isSlotFree(p, designerSlug, start) {
 
 module.exports = {
   BLOCKING_STATUSES,
+  OVERRIDABLE,
+  serviceForDesigner,
   blockServiceTypes,
   gapMs,
   computeSlots,

@@ -55,7 +55,7 @@ import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../share
 import {
     DEMO, DEMO_ADMIN, STUDIO_LABELS, TYPE_LABELS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
     pragueToDate, dateKey, timeKey, mondayKey, addDaysKey,
-    DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS, demoAvailability, demoBookings, demoBusy, akce,
+    DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS, demoAvailability, demoBookings, demoBusy, akce, overridesFormHtml, readOverrides,
 } from './rezervace-common.js';
 
 const { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, writeBatch, Timestamp, serverTimestamp } =
@@ -380,6 +380,8 @@ function openMySettings() {
         <div class="form-group"><label>Pozice na webu</label><input id="msPosition" type="text" maxlength="100" placeholder="${escapeHtml(u.position || 'např. Designérka koupelen')}" value="${escapeHtml(r.publicPosition || '')}"></div>
         <div class="form-group"><label>Krátké představení</label><textarea id="msBio" rows="2" maxlength="400" placeholder="Na co se specializuješ — uvidí to klienti při výběru designéra.">${escapeHtml(r.bio || '')}</textarea></div>
         <div class="form-group"><label>Fotka (https:// odkaz)</label><input id="msPhoto" type="url" value="${escapeHtml(r.photoUrl || '')}"></div>
+        <h3>Moje parametry schůzek</h3>
+        <div id="msOverrides">${overridesFormHtml(services.filter(sv => (r.services || []).includes(sv.id)), r.overrides, r.travelMin, config.travelMin ?? 60)}</div>
         <h3>Nastavuje admin</h3>
         <dl class="info-grid">
             <dt>Rezervace</dt><dd>${r.enabled ? 'zapnuté — klienti tě vidí' : 'vypnuté — klienti tě zatím nevidí'}</dd>
@@ -398,6 +400,7 @@ async function saveMySettings() {
     const reservations = {
         services: vals('data-ms-service'), studios: vals('data-ms-studio'), homeRegions: vals('data-ms-region'),
         publicPosition: $('msPosition').value.trim(), bio: $('msBio').value.trim(), photoUrl: $('msPhoto').value.trim(),
+        ...readOverrides($('msOverrides')),
     };
     $('msSave').disabled = true;
     try {

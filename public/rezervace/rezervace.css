@@ -84,3 +84,5 @@ table.tbl input[type="number"], table.tbl input[type="text"] { width: 100%; min-
 table.tbl tr[data-profile] td { border-top: none; padding-top: 0; }
 table.tbl tr[data-profile] input[type="text"] { width: 100%; }
 .form-group .check-list input[type="checkbox"], .choice-opt input[type="radio"] { width: auto; padding: 0; margin-top: 3px; }
+.ov-tbl input[type="number"], input[data-ov-travel] { width: 100%; min-width: 60px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 5px 7px; font-family: var(--font); font-size: 12px; }
+.ov-tbl input::placeholder { color: var(--muted); }

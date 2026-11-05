@@ -18,7 +18,7 @@ const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https")
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
-const { computeSlots, BLOCKING_STATUSES, overlaps, horizonEnd, gapMs } = require("./sloty");
+const { computeSlots, BLOCKING_STATUSES, overlaps, horizonEnd, gapMs, OVERRIDABLE, serviceForDesigner } = require("./sloty");
 const { getRaynet, EXT_ID_PREFIX } = require("./raynet");
 const { DEFAULT_HOME_REGIONS, eligibleDesigners, publicProfile, homeRegionsOf } = require("./designeri");
 const { permanentShiftBlocks, studioCoverage } = require("./smeny");
@@ -124,6 +124,9 @@ async function loadBusy(db, slugs) {
   return Object.fromEntries(snaps.filter((s) => s.exists).map((s) => [s.id, s.data().intervals || []]));
 }
 
+const effectiveService = (service, designer) => serviceForDesigner(service, designer?.reservations?.overrides);
+const effectiveTravel = (cfg, designer) => (Number.isFinite(designer?.reservations?.travelMin) ? designer.reservations.travelMin : cfg.travelMin);
+
 async function slotContext(db, { service, studio, region, designer, from, to, cfg }) {
   const designers = eligibleDesigners(await loadDesigners(db), service, { studio, region })
     .filter((d) => !designer || d.slug === designer);
@@ -140,6 +143,9 @@ async function slotContext(db, { service, studio, region, designer, from, to, cf
     params: {
       service, availability, bookings, busy, studio, designers: slugs,
       stepMin: cfg.stepMin, blockHolidays: cfg.blockHolidays, travelMin: cfg.travelMin,
+      // Výchozí parametry dává admin u služby, designér si je může přepsat pro sebe.
+      serviceFor: (slug) => effectiveService(service, designers.find((d) => d.slug === slug)),
+      travelFor: (slug) => effectiveTravel(cfg, designers.find((d) => d.slug === slug)),
     },
   };
 }
@@ -242,7 +248,6 @@ async function createBooking(input, { source, actor, internal }) {
   const studio = validateStudio(service, input.studio);
   const region = validateRegion(service, input.region, cfg);
   const start = validateStart(input.start);
-  const end = new Date(start.getTime() + service.durationMin * MIN_MS);
   const { client, address, note } = validateClient(input, service);
   const ignoreLead = internal && input.ignoreLead === true;
 
@@ -276,6 +281,9 @@ async function createBooking(input, { source, actor, internal }) {
   const at = Timestamp.fromDate(now);
 
   for (const designer of candidates) {
+    // Délka schůzky podle designéra (může mít vlastní).
+    const svc = effectiveService(service, designer);
+    const end = new Date(start.getTime() + svc.durationMin * MIN_MS);
     // eslint-disable-next-line no-await-in-loop
     if (await raynetBusyAt(db, designer, start, end, cfg)) continue;
     const booking = {
@@ -304,7 +312,7 @@ async function createBooking(input, { source, actor, internal }) {
       updatedBy: actor,
     };
     // eslint-disable-next-line no-await-in-loop
-    await writeWithLock(db, { designerSlug: designer.slug, start, end, bufferMin: service.bufferMin, travelMin: cfg.travelMin, serviceType: service.type }, (tx, day) => {
+    await writeWithLock(db, { designerSlug: designer.slug, start, end, bufferMin: svc.bufferMin, travelMin: effectiveTravel(cfg, designer), serviceType: service.type }, (tx, day) => {
       tx.create(ref, { ...booking, dayKey: day });
     });
     return { id: ref.id, ...booking, designerName: designer.name };
@@ -357,7 +365,6 @@ async function moveBooking(input, actor) {
   }
   const service = await loadService(db, booking.serviceId);
   const start = validateStart(input.start);
-  const end = new Date(start.getTime() + service.durationMin * MIN_MS);
   const designerSlug = input.designerSlug || booking.designerSlug;
   const { designers, params } = await slotContext(db, {
     service, studio: booking.studio, region: booking.region || null, designer: designerSlug, from: start.getTime(), to: start.getTime() + 1, cfg,
@@ -368,11 +375,13 @@ async function moveBooking(input, actor) {
   }).some((s) => s.start.getTime() === start.getTime());
   if (!free) throw new HttpsError("failed-precondition", "Nový termín není volný.");
   const designer = designers.find((d) => d.slug === designerSlug);
+  const svc = effectiveService(service, designer);
+  const end = new Date(start.getTime() + svc.durationMin * MIN_MS);
   if (await raynetBusyAt(db, designer, start, end, cfg)) {
     throw new HttpsError("failed-precondition", "Designér má v tu dobu v Raynetu jinou schůzku.");
   }
   const oldStart = toDate(booking.start);
-  await writeWithLock(db, { designerSlug, start, end, bufferMin: service.bufferMin, travelMin: cfg.travelMin, serviceType: service.type, excludeId: booking.id }, (tx, dayKey) => {
+  await writeWithLock(db, { designerSlug, start, end, bufferMin: svc.bufferMin, travelMin: effectiveTravel(cfg, designer), serviceType: service.type, excludeId: booking.id }, (tx, dayKey) => {
     tx.update(ref, {
       start: Timestamp.fromDate(start),
       end: Timestamp.fromDate(end),
@@ -567,7 +576,28 @@ async function assertCanManage(caller, id) {
 // ── nastavení designéra (users/{slug}.reservations) ─────────────────────────
 
 // Co si designér smí změnit sám (mojeNastaveni) a co jen admin (nastavitDesignera).
-const SELF_KEYS = ["studios", "homeRegions", "services", "publicPosition", "bio", "photoUrl"];
+const SELF_KEYS = ["studios", "homeRegions", "services", "publicPosition", "bio", "photoUrl", "overrides", "travelMin"];
+
+// Rozumné meze vlastních parametrů (prázdné = výchozí od admina).
+const OVERRIDE_LIMITS = { durationMin: [15, 480], minLeadHours: [0, 720], horizonDays: [1, 365], bufferMin: [0, 240] };
+
+function cleanOverrides(raw, serviceIds) {
+  const out = {};
+  for (const id of serviceIds) {
+    const src = raw?.[id];
+    if (!src || typeof src !== "object") continue;
+    const o = {};
+    for (const k of OVERRIDABLE) {
+      if (src[k] === "" || src[k] == null) continue;
+      const n = Number(src[k]);
+      const [lo, hi] = OVERRIDE_LIMITS[k];
+      if (!Number.isFinite(n) || n < lo || n > hi) throw new HttpsError("invalid-argument", `Hodnota ${k} musí být mezi ${lo} a ${hi}.`);
+      o[k] = n;
+    }
+    if (Object.keys(o).length) out[id] = o;
+  }
+  return out;
+}
 const ADMIN_ONLY_KEYS = ["enabled", "raynetUserId", "permanentShift", "manageAll"];
 const ALL_KEYS = [...SELF_KEYS, ...ADMIN_ONLY_KEYS];
 
@@ -598,10 +628,15 @@ async function buildReservations(db, r, current, keys) {
     permanentShift: STUDIOS.includes(r.permanentShift) ? r.permanentShift : null,
     // Smí posouvat/rušit/potvrzovat rezervace všech (CX, vedení).
     manageAll: r.manageAll === true,
+    // Vlastní parametry služeb (jen OVERRIDABLE) a vlastní čas na přesun.
+    overrides: cleanOverrides(r.overrides, services),
+    travelMin: r.travelMin === "" || r.travelMin == null ? null : Math.min(240, Math.max(0, Number(r.travelMin) || 0)),
   };
   const out = { ...current };
   for (const k of keys) if (k in r) out[k] = next[k];
-  for (const k of ALL_KEYS) if (out[k] === undefined) out[k] = k === "enabled" || k === "manageAll" ? false : (Array.isArray(next[k]) ? [] : null);
+  for (const k of ALL_KEYS) {
+    if (out[k] === undefined) out[k] = k === "enabled" || k === "manageAll" ? false : Array.isArray(next[k]) ? [] : k === "overrides" ? {} : null;
+  }
   return out;
 }
 

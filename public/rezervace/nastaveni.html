@@ -40,8 +40,8 @@
     </nav>
     <div id="banner"></div>
 
-    <div class="section-h">Služby</div>
-    <p class="hint" style="margin-bottom:8px">Změny se projeví hned po uložení. Na ikonu <span class="info" aria-hidden="true">i</span> najeď (nebo klikni) pro vysvětlení.</p>
+    <div class="section-h">Služby — výchozí pro všechny</div>
+    <p class="hint" style="margin-bottom:8px">Výchozí hodnoty pro všechny designéry. Délku, „nejdřív/nejpozději za“ a pauzu si může každý upravit pro sebe (Moje nastavení), ty to můžeš u konkrétního člověka níž. Cenu a potvrzování CX mění jen admin. Na ikonu <span class="info" aria-hidden="true">i</span> najeď (nebo klikni) pro vysvětlení.</p>
     <div class="card table-wrap"><table class="tbl" id="servicesTbl"></table></div>
 
     <div class="section-h">Designéři</div>
@@ -59,7 +59,7 @@
 
 <script type="module">
 import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
-import { DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS } from './rezervace-common.js';
+import { DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS, overridesFormHtml, readOverrides } from './rezervace-common.js';
 
 const { collection, getDocs, getDoc, doc, setDoc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
 
@@ -191,6 +191,8 @@ function renderDesigners() {
                         <select data-f="permanentShift" style="margin-left:4px"><option value="">ne</option>${Object.entries(STUDIO_LABELS).map(([k, v]) => `<option value="${k}" ${r.permanentShift === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
                     <label><input type="checkbox" data-manage-all ${r.manageAll ? 'checked' : ''}> Spravuje všechny rezervace (CX, vedení)</label>
                 </div>
+                <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Vlastní parametry schůzek${Object.keys(r.overrides || {}).length || r.travelMin != null ? ' (nastavené)' : ''}</summary>
+                    <div data-ov-root>${overridesFormHtml(services, r.overrides, r.travelMin, config.travelMin ?? 60)}</div></details>
                 <span class="hint">Přímý odkaz: <code>/rezervovat/?designer=${escapeHtml(slug)}</code></span>
             </td></tr>`;
         }).join('');
@@ -212,6 +214,7 @@ async function saveDesigner(btn) {
         bio: f('bio'),
         permanentShift: profile.querySelector('[data-f="permanentShift"]').value || null,
         manageAll: profile.querySelector('[data-manage-all]').checked,
+        ...readOverrides(profile.querySelector('[data-ov-root]')),
     };
     btn.disabled = true;
     try {

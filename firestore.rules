@@ -53,6 +53,48 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ── MODUL REZERVACE (docs/rezervace-spec.md, kap. 9) ────────────────────
+    // users/{slug}.reservations zapisuje jen Cloud Function rezervaceAkce
+    // (pravidlo pro users výše se kvůli tomu nerozvolňuje).
+
+    // Služby a konfigurace modulu: čte každý přihlášený, mění jen admin/HR.
+    match /res_services/{serviceId} {
+      allow read: if isSignedIn();
+      allow write: if isHrOrAdmin();
+    }
+    match /config/rezervace {
+      allow read: if isSignedIn();
+      allow write: if isHrOrAdmin();
+    }
+
+    // Dostupnost designéra: bloky si zapisuje designér sám (designerSlug == jeho
+    // slug), admin/HR za kohokoliv.
+    function validAvailability(d) {
+      return d.serviceType in ['studio', 'home'] &&
+        d.start is timestamp && d.end is timestamp && d.start < d.end &&
+        (d.serviceType == 'home' || d.studio in ['praha', 'brno', 'hradec', 'pardubice']);
+    }
+    match /res_availability/{blockId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validAvailability(request.resource.data) &&
+        (request.resource.data.designerSlug == mySlug() || isHrOrAdmin());
+      allow update: if isSignedIn() && validAvailability(request.resource.data) &&
+        ((resource.data.designerSlug == mySlug() && request.resource.data.designerSlug == mySlug()) || isHrOrAdmin());
+      allow delete: if isSignedIn() && (resource.data.designerSlug == mySlug() || isHrOrAdmin());
+    }
+
+    // Rezervace a obsazenost z Raynetu: čtení přihlášeným, zápis jen přes
+    // Cloud Functions (validace, historie, Raynet push). res_locks a
+    // _raynet_mock nemají pravidlo → klient je nevidí.
+    match /res_bookings/{bookingId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+    match /res_busy/{slug} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     // ── MODUL ADAPTACE ──────────────────────────────────────────────────────
 
     // Pomocné funkce

@@ -377,3 +377,12 @@ exports.offboardEmployee = onCall({ region: "europe-central2" }, async (request)
 // ── MODUL LEADY ─────────────────────────────────────────────────────────────
 // Příjem kontaktů z pop-up formuláře na webu — viz functions/leady.js.
 exports.prijmoutLead = require("./leady").prijmoutLead;
+
+// ── MODUL REZERVACE ─────────────────────────────────────────────────────────
+// Náhrada Reservanta — viz functions/rezervace/index.js a docs/rezervace-spec.md.
+const rezervace = require("./rezervace");
+exports.volneTerminy = rezervace.volneTerminy;
+exports.vytvoritRezervaci = rezervace.vytvoritRezervaci;
+exports.rezervaceAkce = rezervace.rezervaceAkce;
+exports.rezervaceRaynetSync = rezervace.rezervaceRaynetSync;
+exports.rezervaceObsazenost = rezervace.rezervaceObsazenost;

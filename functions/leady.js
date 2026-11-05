@@ -232,4 +232,4 @@ exports.prijmoutLead = onRequest(
 );
 
 // Jen pro lokální ověření (index.js exportuje pouze prijmoutLead).
-exports._internal = { parseSource, parseMetaSource, normalizePhone, flatten, pick };
+exports._internal = { parseSource, parseMetaSource, normalizePhone, isEmail, flatten, pick };

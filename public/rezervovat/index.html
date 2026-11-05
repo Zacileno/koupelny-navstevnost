@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rezervace konzultace — Koupelny Syrový</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Veřejná stránka (první na platformě bez přihlášení): světlá, ladí s webem.
+           Nenačítá shared/auth-common.js ani Firestore — vše jde přes Cloud Functions. */
+        :root {
+            --blue: #179ED9; --blue-dark: #0f7ab0; --blue-dim: rgba(23,158,217,.1);
+            --gold: #C5A66B; --gold-dim: rgba(197,166,107,.14);
+            --bg: #f6f7f9; --surface: #fff; --text: #1d2230; --text-dim: #5d6475; --border: #e2e5eb;
+            --danger: #d64545; --success: #1f9d6b; --radius: 12px; --font: 'Montserrat', Arial, sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: var(--font); background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+        .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 60px; }
+        header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+        header img { height: 28px; display: block; }
+        h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+        .lead { color: var(--text-dim); margin-bottom: 20px; }
+        .step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
+        .step h2 { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); margin-bottom: 12px; }
+        .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+        .choice { text-align: left; background: var(--surface); border: 2px solid var(--border); border-radius: 10px; padding: 14px; cursor: pointer; font-family: var(--font); color: var(--text); font-size: 14px; }
+        .choice:hover { border-color: var(--blue); }
+        .choice.selected { border-color: var(--blue); background: var(--blue-dim); }
+        .choice strong { display: block; font-size: 15px; }
+        .choice small { color: var(--text-dim); display: block; margin-top: 3px; }
+        .price { color: var(--gold); font-weight: 700; }
+        .designers { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+        .designer { display: flex; gap: 12px; align-items: flex-start; text-align: left; background: var(--surface); border: 2px solid var(--border); border-radius: 12px; padding: 12px; cursor: pointer; font-family: var(--font); color: var(--text); }
+        .designer:hover { border-color: var(--blue); }
+        .designer.selected { border-color: var(--blue); background: var(--blue-dim); }
+        .designer.disabled { opacity: .55; cursor: default; }
+        .avatar { flex: 0 0 56px; width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: var(--gold-dim); color: var(--gold); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; }
+        .designer strong { display: block; font-size: 15px; }
+        .designer small { display: block; color: var(--text-dim); font-size: 12px; }
+        .designer .next { color: var(--success); font-weight: 600; margin-top: 4px; }
+        .designer .bio { margin-top: 4px; }
+        .hero { display: flex; gap: 14px; align-items: center; margin-bottom: 20px; }
+        .hero .avatar { flex-basis: 72px; width: 72px; height: 72px; font-size: 22px; }
+        .days { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 10px; }
+        .day { flex: 0 0 auto; border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 7px 11px; cursor: pointer; font-family: var(--font); font-size: 13px; text-align: center; color: var(--text); }
+        .day b { display: block; font-size: 16px; }
+        .day.selected { border-color: var(--blue); background: var(--blue); color: #fff; }
+        .times { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+        .time { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 9px 0; cursor: pointer; font-family: var(--font); font-size: 14px; font-weight: 600; color: var(--text); }
+        .time:hover { border-color: var(--blue); }
+        .time.selected { background: var(--blue); border-color: var(--blue); color: #fff; }
+        label { display: block; font-size: 12px; font-weight: 600; color: var(--text-dim); margin: 10px 0 4px; }
+        input, textarea, select { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-family: var(--font); font-size: 15px; color: var(--text); background: #fff; }
+        input:focus, textarea:focus, select:focus { outline: 2px solid var(--blue-dim); border-color: var(--blue); }
+        .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+        @media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } }
+        .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+        .btn { display: inline-block; background: var(--blue); color: #fff; border: none; border-radius: 10px; padding: 13px 22px; font-family: var(--font); font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 14px; }
+        .btn:hover { background: var(--blue-dark); }
+        .btn:disabled { opacity: .5; cursor: default; }
+        .link { background: none; border: none; color: var(--blue); font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; }
+        .muted { color: var(--text-dim); font-size: 13px; }
+        .error { color: var(--danger); font-size: 14px; margin-top: 10px; }
+        .summary { background: var(--blue-dim); border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-bottom: 6px; }
+        .done { text-align: center; padding: 30px 18px; }
+        .done .ok { font-size: 40px; color: var(--success); }
+        .hidden { display: none !important; }
+        .spinner { width: 22px; height: 22px; border: 3px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <header><img src="../logo.png" alt="Koupelny Syrový"></header>
+    <h1 id="title">Rezervace u designéra</h1>
+    <p class="lead" id="lead">Vyberte si službu, svého designéra a termín, který vám vyhovuje.</p>
+
+    <div id="app"><div class="step"><span class="spinner"></span>Načítám…</div></div>
+</div>
+
+<script type="module">
+// API: na produkci Cloud Functions v europe-central2, lokálně emulátor.
+// ?api=<url> jde přepsat ručně (testování).
+const params = new URLSearchParams(location.search);
+const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
+const API = params.get('api') || (LOCAL
+    ? 'http://127.0.0.1:5001/koupelny-navstevnost/europe-central2'
+    : 'https://europe-central2-koupelny-navstevnost.cloudfunctions.net');
+const DEMO = params.get('demo') === '1';
+const TZ = 'Europe/Prague';
+
+const state = {
+    services: [], studios: [], homeRegions: [], privacyUrl: '', infoline: '',
+    service: null,
+    place: params.get('studio') || params.get('oblast') || null, // studio (konzultace) nebo oblast (návrh doma)
+    designer: params.get('designer') || null,  // slug, nebo 'any' = kdokoliv volný
+    linkDesigner: null,                        // profil z přímého odkazu ?designer=
+    designers: [], slots: [], day: null, slot: null, fromDay: null, loading: false,
+};
+// UTM a klikové identifikátory pro měření kampaň → rezervace.
+const utm = {};
+for (const k of ['source', 'medium', 'campaign', 'content', 'term']) if (params.get(`utm_${k}`)) utm[k] = params.get(`utm_${k}`);
+if (!utm.source && params.has('gclid')) { utm.source = 'google'; utm.medium = 'cpc'; }
+if (!utm.source && params.has('fbclid')) utm.source = 'facebook';
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const dayKey = (d) => new Date(d).toLocaleDateString('sv-SE', { timeZone: TZ });
+const fmtTime = (d) => new Date(d).toLocaleTimeString('cs-CZ', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+const fmtLong = (d) => new Date(d).toLocaleString('cs-CZ', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+const fmtShort = (d) => new Date(d).toLocaleString('cs-CZ', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+const initials = (name) => String(name || '').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+const avatar = (d) => d.photoUrl ? `<img class="avatar" src="${esc(d.photoUrl)}" alt="">` : `<span class="avatar">${esc(initials(d.name))}</span>`;
+
+async function api(path, opts) {
+    if (DEMO) return demoApi(path, opts);
+    const res = await fetch(`${API}/${path}`, opts);
+    const json = await res.json().catch(() => ({ ok: false, message: 'Server neodpověděl.' }));
+    if (!json.ok) throw new Error(json.message || 'Něco se pokazilo. Zkuste to prosím znovu.');
+    return json;
+}
+
+const isHome = () => state.service?.type === 'home';
+const placeName = () => (isHome() ? state.homeRegions : state.studios).find(x => x.id === state.place)?.name || '';
+const chosenDesigner = () => state.designers.find(d => d.slug === state.designer) || (state.linkDesigner?.slug === state.designer ? state.linkDesigner : null);
+
+// Možnosti v kroku 1 a 2 — u přímého odkazu na designéra jen to, co vede on.
+function availableServices() {
+    const ld = state.linkDesigner;
+    return ld ? state.services.filter(s => ld.services.includes(s.id)) : state.services;
+}
+function availablePlaces() {
+    const ld = state.linkDesigner;
+    if (isHome()) return ld ? state.homeRegions.filter(r => ld.homeRegions.includes(r.id)) : state.homeRegions;
+    return ld ? state.studios.filter(x => ld.studios.includes(x.id)) : state.studios;
+}
+
+async function init() {
+    const q = state.designer && state.designer !== 'any' ? `?designer=${encodeURIComponent(state.designer)}` : '';
+    const data = await api(`volneTerminy${q}`);
+    state.services = data.services;
+    state.studios = data.studios;
+    state.homeRegions = data.homeRegions || [];
+    state.privacyUrl = data.privacyUrl;
+    state.infoline = data.infolinePhone || '';
+    renderInfoline();
+    state.linkDesigner = data.designer || null;
+    if (state.designer && state.designer !== 'any' && !state.linkDesigner) state.designer = null; // neplatný odkaz → běžný výběr
+
+    if (state.linkDesigner) {
+        const d = state.linkDesigner;
+        $('title').textContent = 'Rezervace konzultace';
+        $('lead').innerHTML = '';
+        $('lead').insertAdjacentHTML('beforebegin', `<div class="hero">${avatar(d)}<div><strong>${esc(d.name)}</strong><br><span class="muted">${esc(d.position)}</span>${d.bio ? `<p class="muted" style="margin-top:4px">${esc(d.bio)}</p>` : ''}</div></div>`);
+    }
+    const services = availableServices();
+    state.service = services.find(s => s.id === params.get('sluzba')) || (services.length === 1 ? services[0] : null);
+    if (state.service) autoPlace();
+    render();
+    if (state.service && state.place) loadSlots();
+}
+
+// Jedno číslo jako infolinka — pro ty, kdo nenajdou termín nebo radši volají.
+function renderInfoline() {
+    if (!state.infoline) return;
+    const tel = state.infoline.replace(/\s/g, '');
+    $('lead').insertAdjacentHTML('afterend', `<p class="muted" id="infoline" style="margin:-12px 0 18px">Raději zavoláte? <a href="tel:${esc(tel)}" style="color:var(--blue);font-weight:600">${esc(state.infoline)}</a></p>`);
+}
+const callUs = () => state.infoline ? `zavolejte nám na <a href="tel:${esc(state.infoline.replace(/\s/g, ''))}">${esc(state.infoline)}</a>` : 'zavolejte nám';
+
+// Jediná možnost (např. designér jen v jednom studiu) → vybrat rovnou.
+function autoPlace() {
+    const places = availablePlaces();
+    if (!places.some(p => p.id === state.place)) state.place = places.length === 1 ? places[0].id : null;
+}
+
+function render() {
+    const s = state.service;
+    const services = availableServices();
+    let n = 0;
+    let html = '';
+    if (services.length > 1 || !s) {
+        html += `<div class="step"><h2>${++n}. Služba</h2><div class="choices">${services.map(x => `
+            <button class="choice ${s?.id === x.id ? 'selected' : ''}" data-service="${x.id}">
+                <strong>${esc(x.name)}</strong>
+                <small>${x.durationMin} min · <span class="price">${esc(x.priceText)}</span></small>
+                ${x.description ? `<small>${esc(x.description)}</small>` : ''}
+            </button>`).join('')}</div></div>`;
+    }
+    if (s) {
+        const places = availablePlaces();
+        html += `<div class="step"><h2>${++n}. ${isHome() ? 'Kde bydlíte?' : 'Studio'}</h2>
+            ${isHome() ? '<p class="muted" style="margin:-4px 0 10px">Nabídneme designéry, kteří k vám jezdí.</p>' : ''}
+            <div class="choices">${places.map(x => `
+            <button class="choice ${state.place === x.id ? 'selected' : ''}" data-place="${x.id}">
+                <strong>${esc(x.name)}</strong>${x.address ? `<small>${esc(x.address)}</small>` : ''}
+            </button>`).join('') || '<p class="muted">Tuto službu teď v žádné oblasti nenabízíme.</p>'}</div></div>`;
+    }
+    if (s && state.place) {
+        html += `<div class="step"><h2>${++n}. Designér</h2><div id="designers">${designersHtml()}</div></div>`;
+    }
+    if (s && state.place && state.designer) {
+        const d = chosenDesigner();
+        html += `<div class="step"><h2>${++n}. Termín${d ? ` · ${esc(d.name)}` : ''}</h2><div id="slots"><span class="spinner"></span>Hledám volné termíny…</div></div>`;
+    }
+    if (state.slot) {
+        const d = chosenDesigner();
+        html += `<div class="step" id="formStep"><h2>Vaše údaje</h2>
+            <div class="summary">${esc(s.name)} · <strong>${esc(fmtLong(state.slot))}</strong> · ${esc(placeName())}${d ? ` · ${esc(d.name)}` : ''}</div>
+            <form id="form" novalidate>
+                <div class="row2">
+                    <div><label for="name">Jméno a příjmení *</label><input id="name" autocomplete="name" required></div>
+                    <div><label for="phone">Telefon *</label><input id="phone" type="tel" autocomplete="tel" required placeholder="777 123 456"></div>
+                </div>
+                <label for="email">E-mail</label><input id="email" type="email" autocomplete="email">
+                ${isHome() ? '<label for="address">Adresa, kam přijedeme *</label><input id="address" autocomplete="street-address" required>' : ''}
+                <label for="note">Poznámka (co plánujete)</label><textarea id="note" rows="3"></textarea>
+                <div class="hp" aria-hidden="true"><label for="web">Web</label><input id="web" tabindex="-1" autocomplete="off"></div>
+                ${isHome() && s.requiresConfirmation ? `<p class="muted" style="margin-top:12px">Návrh u vás doma stojí ${esc(s.priceText)}. Po odeslání vám zavoláme, domluvíme detaily a pošleme zálohovou fakturu — termín potvrdíme po její úhradě.</p>` : ''}
+                <p class="muted" style="margin-top:10px">Odesláním souhlasíte se zpracováním údajů za účelem domluvy schůzky${state.privacyUrl ? ` (<a href="${esc(state.privacyUrl)}" target="_blank" rel="noopener">zásady</a>)` : ''}.</p>
+                <button class="btn" type="submit" id="submit">${isHome() && s.requiresConfirmation ? 'Odeslat žádost o termín' : 'Rezervovat termín'}</button>
+                <p class="error" id="formErr"></p>
+            </form></div>`;
+    }
+    $('app').innerHTML = html;
+    $('app').querySelectorAll('[data-service]').forEach(b => b.addEventListener('click', () => {
+        state.service = state.services.find(x => x.id === b.dataset.service);
+        resetFrom('service');
+        autoPlace();
+        render();
+        if (state.place) loadSlots();
+    }));
+    $('app').querySelectorAll('[data-place]').forEach(b => b.addEventListener('click', () => {
+        state.place = b.dataset.place;
+        resetFrom('place');
+        render(); loadSlots();
+    }));
+    bindDesigners();
+    if (state.designer && state.slots.length) renderSlots();
+    $('form')?.addEventListener('submit', submit);
+}
+
+function resetFrom(step) {
+    state.slot = null; state.slots = []; state.day = null; state.fromDay = null;
+    if (step === 'service' || step === 'place') {
+        state.designers = [];
+        // Přímý odkaz drží designéra, dokud ho klient sám nezmění.
+        if (!state.linkDesigner || state.designer !== state.linkDesigner.slug) state.designer = null;
+    }
+}
+
+function designersHtml() {
+    if (state.loading && !state.designers.length) return '<span class="spinner"></span>Načítám designéry…';
+    const list = state.linkDesigner && state.designer === state.linkDesigner.slug
+        ? state.designers.filter(d => d.slug === state.designer)
+        : state.designers;
+    if (!list.length) return `<p class="muted">Pro tuto volbu teď nemáme volného designéra. Prosím ${callUs()}, termín domluvíme.</p>`;
+    const card = (d) => `<button class="designer ${state.designer === d.slug ? 'selected' : ''} ${d.nextSlot ? '' : 'disabled'}" data-designer="${d.slug}" ${d.nextSlot ? '' : 'disabled'}>
+        ${avatar(d)}<div><strong>${esc(d.name)}</strong>${d.position ? `<small>${esc(d.position)}</small>` : ''}
+        ${d.bio ? `<small class="bio">${esc(d.bio)}</small>` : ''}
+        <small class="${d.nextSlot ? 'next' : ''}">${d.nextSlot ? `Nejbližší volný termín: ${esc(fmtShort(d.nextSlot))}` : 'V nejbližších týdnech plno'}</small></div></button>`;
+    const anyFree = state.designers.some(d => d.nextSlot);
+    const any = list.length > 1 && anyFree ? `<button class="designer ${state.designer === 'any' ? 'selected' : ''}" data-designer="any">
+        <span class="avatar">★</span><div><strong>Kdokoliv</strong><small>Nejbližší volný termín u kteréhokoliv designéra</small></div></button>` : '';
+    const change = state.linkDesigner && state.designer === state.linkDesigner.slug && state.designers.length > 1
+        ? '<p style="margin-top:10px"><button class="link" id="otherDesigner">Vybrat jiného designéra</button></p>' : '';
+    return `<div class="designers">${list.map(card).join('')}${any}</div>${change}`;
+}
+
+function bindDesigners() {
+    $('app').querySelectorAll('[data-designer]').forEach(b => b.addEventListener('click', () => {
+        if (b.disabled) return;
+        state.designer = b.dataset.designer;
+        state.slot = null; state.day = null; state.fromDay = null;
+        render(); loadSlots();
+    }));
+    // Z odkazu na designéra jde přejít k běžnému výběru (ostatní designéři pro stejné místo).
+    $('otherDesigner')?.addEventListener('click', () => { state.linkDesigner = null; state.designer = null; state.slot = null; render(); });
+}
+
+async function loadSlots() {
+    const q = new URLSearchParams({ sluzba: state.service.id });
+    q.set(isHome() ? 'oblast' : 'studio', state.place);
+    if (state.designer && state.designer !== 'any') q.set('designer', state.designer);
+    if (state.fromDay) q.set('od', state.fromDay);
+    state.loading = true;
+    try {
+        const data = await api(`volneTerminy?${q}`);
+        // Seznam designérů (s nejbližším volnem) držíme z prvního, neposunutého dotazu.
+        if (!state.fromDay || !state.designers.length) state.designers = data.designers;
+        state.slots = data.slots;
+        if (!state.day || !state.slots.some(t => dayKey(t) === state.day)) state.day = state.slots.length ? dayKey(state.slots[0]) : null;
+    } catch (err) {
+        state.loading = false;
+        ($('slots') || $('designers')).innerHTML = `<p class="error">${esc(err.message)}</p>`;
+        return;
+    }
+    state.loading = false;
+    render();
+}
+
+function renderSlots() {
+    const box = $('slots');
+    if (!box) return;
+    if (!state.slots.length) {
+        box.innerHTML = `<p class="muted">V nejbližších dnech bohužel nemáme volný termín.${state.fromDay ? '' : ` Zkuste jiného designéra, nebo ${callUs()}.`}</p>
+            ${state.fromDay ? '<button class="link" id="back">← Zpět na nejbližší termíny</button>' : ''}`;
+        $('back')?.addEventListener('click', () => { state.fromDay = null; loadSlots(); });
+        return;
+    }
+    const days = [...new Set(state.slots.map(dayKey))];
+    const times = state.slots.filter(t => dayKey(t) === state.day);
+    const lastDay = days[days.length - 1];
+    box.innerHTML = `
+        <div class="days">${days.map(k => {
+            const d = new Date(`${k}T12:00:00`);
+            return `<button class="day ${k === state.day ? 'selected' : ''}" data-day="${k}">${d.toLocaleDateString('cs-CZ', { weekday: 'short' })}<b>${d.getDate()}.</b>${d.getMonth() + 1}.</button>`;
+        }).join('')}</div>
+        <div class="times">${times.map(t => `<button class="time ${state.slot === t ? 'selected' : ''}" data-time="${t}">${fmtTime(t)}</button>`).join('')}</div>
+        <p style="margin-top:12px"><button class="link" id="more">Další termíny →</button></p>`;
+    box.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => { state.day = b.dataset.day; state.slot = null; render(); }));
+    box.querySelectorAll('[data-time]').forEach(b => b.addEventListener('click', () => {
+        state.slot = b.dataset.time;
+        render();
+        $('formStep')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+    $('more').addEventListener('click', () => {
+        const next = new Date(`${lastDay}T12:00:00Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        state.fromDay = next.toISOString().slice(0, 10);
+        state.day = null; state.slot = null;
+        loadSlots();
+    });
+}
+
+async function submit(e) {
+    e.preventDefault();
+    const val = (id) => $(id)?.value.trim() || '';
+    const err = $('formErr');
+    err.textContent = '';
+    if (!val('name') || !val('phone') || (state.service.type === 'home' && !val('address'))) {
+        err.textContent = 'Vyplňte prosím povinné údaje.';
+        return;
+    }
+    $('submit').disabled = true;
+    try {
+        const res = await api('vytvoritRezervaci', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sluzba: state.service.id, start: state.slot,
+                studio: isHome() ? null : state.place, oblast: isHome() ? state.place : null,
+                designer: state.designer !== 'any' ? state.designer : null,
+                name: val('name'), phone: val('phone'), email: val('email'), address: val('address'), note: val('note'),
+                web: val('web'), utm, sourceUrl: location.href,
+            }),
+        });
+        done(res);
+    } catch (ex) {
+        err.textContent = ex.message;
+        $('submit').disabled = false;
+        if (/obsazen|volný/.test(ex.message)) { state.slot = null; loadSlots(); }
+    }
+}
+
+function done(res) {
+    const requested = res.status === 'requested';
+    $('title').textContent = requested ? 'Děkujeme, žádost máme' : 'Hotovo, těšíme se na vás';
+    $('lead').textContent = '';
+    $('app').innerHTML = `<div class="step done"><div class="ok">✓</div>
+        <p style="font-size:17px;font-weight:600;margin:8px 0">${esc(state.service.name)}</p>
+        <p>${esc(fmtLong(res.start || state.slot))} · ${esc(isHome() ? placeName() : `studio ${placeName()}`)}</p>
+        ${res.designerName ? `<p style="margin-top:4px">Designér: <strong>${esc(res.designerName)}</strong></p>` : ''}
+        <p class="muted" style="margin-top:12px">${requested
+            ? 'Brzy vám zavoláme, domluvíme detaily a pošleme zálohovou fakturu. Termín je pro vás předběžně držený.'
+            : 'Kdyby vám termín nevyhovoval, dejte nám prosím vědět telefonicky.'}</p></div>`;
+}
+
+// ── demo (?demo=1): bez sítě ──
+const DEMO_DESIGNERS = [
+    { slug: 'jana-dvorakova', name: 'Jana Dvořáková', position: 'Designérka koupelen', bio: 'Specializuje se na malé panelákové koupelny.', photoUrl: '', studios: ['praha'], homeRegions: ['praha'], services: ['konzultace-studio', 'navrh-doma'] },
+    { slug: 'marek-novak', name: 'Marek Novák', position: 'Projektový specialista', bio: '', photoUrl: '', studios: ['praha', 'brno'], homeRegions: ['brno'], services: ['konzultace-studio', 'navrh-doma'] },
+];
+function demoApi(path, opts) {
+    const q = new URLSearchParams(path.split('?')[1] || '');
+    if (!q.has('sluzba') && path.startsWith('volneTerminy')) {
+        const d = DEMO_DESIGNERS.find(x => x.slug === q.get('designer'));
+        return {
+            ok: true, privacyUrl: '', infolinePhone: '+420 800 123 456', designer: d || null,
+            services: [
+                { id: 'konzultace-studio', name: 'Konzultace ve studiu', type: 'studio', durationMin: 60, priceText: 'zdarma', requiresConfirmation: false, description: 'Osobní konzultace s designérem v našem studiu.' },
+                { id: 'navrh-doma', name: 'Návrh u vás doma', type: 'home', durationMin: 120, priceText: '4 990 Kč vč. DPH', requiresConfirmation: true, description: 'Designér přijede k vám a navrhne koupelnu na místě.' },
+            ],
+            studios: [{ id: 'praha', name: 'Praha', address: '' }, { id: 'brno', name: 'Brno', address: '' }, { id: 'hradec', name: 'Hradec Králové', address: '' }, { id: 'pardubice', name: 'Pardubice', address: '' }],
+            homeRegions: [{ id: 'praha', name: 'Praha a Střední Čechy' }, { id: 'brno', name: 'Brno a Jižní Morava' }, { id: 'hradec', name: 'Hradec Králové a okolí' }, { id: 'pardubice', name: 'Pardubice a okolí' }],
+        };
+    }
+    if (path.startsWith('volneTerminy')) {
+        const home = q.get('sluzba') === 'navrh-doma';
+        const place = q.get(home ? 'oblast' : 'studio');
+        const eligible = DEMO_DESIGNERS.filter(d => (home ? d.homeRegions : d.studios).includes(place));
+        const slots = [];
+        const base = new Date(); base.setHours(0, 0, 0, 0);
+        for (let i = home ? 2 : 1; i < 12; i++) for (const h of [9, 10, 11, 14, 15]) {
+            const d = new Date(base.getTime() + i * 864e5); d.setHours(h);
+            if (d.getDay() % 6) slots.push(d.toISOString());
+        }
+        const designers = eligible.map((d, i) => ({ ...d, nextSlot: slots[i * 3] || null }));
+        return { ok: true, designers, designer: designers.find(d => d.slug === q.get('designer')) || null, slots: eligible.length ? slots : [] };
+    }
+    const body = JSON.parse(opts.body);
+    return { ok: true, id: 'demo', status: body.sluzba === 'navrh-doma' ? 'requested' : 'confirmed', start: body.start, designerName: DEMO_DESIGNERS.find(d => d.slug === body.designer)?.name || DEMO_DESIGNERS[0].name };
+}
+
+init().catch(err => { $('app').innerHTML = `<div class="step"><p class="error">${esc(err.message)}</p><p class="muted">Zavolejte nám prosím, rádi termín domluvíme po telefonu.</p></div>`; });
+</script>
+</body>
+</html>

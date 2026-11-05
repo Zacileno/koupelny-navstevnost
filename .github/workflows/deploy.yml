@@ -62,7 +62,7 @@ jobs:
       - name: Ověření, že veřejné funkce jdou zavolat
         run: |
           fail=0
-          for fn in onboardEmployee offboardEmployee resetEmployeePassword; do
+          for fn in onboardEmployee offboardEmployee resetEmployeePassword rezervaceAkce; do
             body=$(curl -s -X POST "https://europe-central2-${PROJECT_ID}.cloudfunctions.net/$fn" \
               -H 'Content-Type: application/json' -d '{"data":{}}')
             if echo "$body" | grep -q '"UNAUTHENTICATED"'; then
@@ -81,4 +81,15 @@ jobs:
             echo "✘ prijmoutLead — chybí Cloud Run Invoker? Odpověď: ${body:0:200}"
             fail=1
           fi
+          # Veřejné rezervační funkce (onRequest): špatná metoda → naše JSON 405.
+          for fn in volneTerminy vytvoritRezervaci; do
+            method=$([ "$fn" = volneTerminy ] && echo POST || echo GET)
+            body=$(curl -s -X $method "https://europe-central2-${PROJECT_ID}.cloudfunctions.net/$fn")
+            if echo "$body" | grep -q '"method-not-allowed"'; then
+              echo "✔ $fn"
+            else
+              echo "✘ $fn — chybí Cloud Run Invoker? Odpověď: ${body:0:200}"
+              fail=1
+            fi
+          done
           exit $fail

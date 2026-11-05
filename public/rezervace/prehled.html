@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Přehled rezervací — Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../shared/shared.css">
+    <link rel="stylesheet" href="rezervace.css">
+</head>
+<body>
+<div class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Rezervace</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="userName">…</span>
+        <button class="btn-logout" id="logoutBtn">Odhlásit</button>
+    </div>
+</div>
+
+<div class="page-wrap">
+    <nav class="subnav">
+        <a href="kalendar.html" data-keep>Můj kalendář</a>
+        <a href="studio.html" data-keep>Kalendář studia</a>
+        <a href="prehled.html" class="active" data-keep>Přehled rezervací</a>
+        <a href="nastaveni.html" data-keep id="navSettings" class="hidden">Nastavení</a>
+    </nav>
+    <div id="banner"></div>
+    <div class="toolbar">
+        <select id="fWhen" aria-label="Období">
+            <option value="upcoming">Nadcházející</option>
+            <option value="past">Proběhlé (30 dní)</option>
+        </select>
+        <select id="fStatus" aria-label="Stav"><option value="">Všechny stavy</option></select>
+        <select id="fService" aria-label="Služba"><option value="">Všechny služby</option></select>
+        <select id="fStudio" aria-label="Studio"><option value="">Všechna studia</option></select>
+        <select id="fDesigner" aria-label="Designér"><option value="">Všichni designéři</option></select>
+        <span class="spacer"></span>
+        <button class="btn btn--ghost btn--sm" id="exportBtn">Aktivita za měsíc</button>
+        <button class="btn btn--primary btn--sm" id="newBtn">+ Rezervace po telefonu</button>
+    </div>
+    <div id="list"><div class="loader"><div class="spinner"></div>Načítám…</div></div>
+</div>
+
+<div class="modal-backdrop" id="modal">
+    <div class="modal">
+        <button class="modal__close" id="modalClose" aria-label="Zavřít">×</button>
+        <div id="modalBody"></div>
+    </div>
+</div>
+
+<script type="module">
+import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
+import {
+    DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, STATUS_LABELS, SOURCE_LABELS, escapeHtml, toDate, fmtDateTime, fmtTime, fmtDay,
+    formatPhone, raynetChip, dateKey, addDaysKey, pragueToDate, DEFAULT_HOME_REGIONS,
+    DEMO_USERS, DEMO_SERVICES, demoBookings,
+} from './rezervace-common.js';
+
+const { collection, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
+
+let db = null, me = null;
+let users = {}, services = [], bookings = [];
+let homeRegions = DEFAULT_HOME_REGIONS;
+const regionName = (id) => homeRegions.find(r => r.id === id)?.name || id || '';
+let info = { raynetConfigured: false, isAdmin: false, manageAll: false, slug: null };
+// Každý spravuje svoje rezervace; všechny jen admin/HR a „Spravuje všechny rezervace“.
+const canManage = (b) => info.manageAll || b.designerSlug === info.slug;
+let unsub = null;
+let openId = null;
+const $ = (id) => document.getElementById(id);
+
+async function init() {
+    if (DEMO) {
+        me = 'demo'; users = DEMO_USERS; services = DEMO_SERVICES;
+        $('userName').textContent = 'Demo mód';
+        document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
+    } else {
+        const session = await requireAuth('/login.html');
+        if (!session) return;
+        me = session.slug;
+        $('userName').textContent = session.profile?.name ?? session.user.email;
+        $('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+        ({ db } = await initFirebase());
+        const [uSnap, sSnap, cSnap] = await Promise.all([getDocs(collection(db, 'users')), getDocs(collection(db, 'res_services')), getDoc(doc(db, 'config', 'rezervace'))]);
+        if (cSnap.exists() && cSnap.data().homeRegions?.length) homeRegions = cSnap.data().homeRegions;
+        users = Object.fromEntries(uSnap.docs.map(d => [d.id, d.data()]));
+        services = sSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+    }
+    try { info = await akce('info'); } catch (err) { console.error(err); }
+    if (info.isAdmin) $('navSettings').classList.remove('hidden');
+    $('banner').innerHTML = info.raynetConfigured ? (info.raynetMock ? '<div class="banner banner--info">Raynet: mock (emulátor)</div>' : '')
+        : '<div class="banner banner--warn">Raynet nenapojen — rezervace se ukládají jen na platformě, do kalendářů v Raynetu se nepropisují a obsazenost z Raynetu se nekontroluje.</div>';
+
+    $('fStatus').innerHTML += Object.entries(STATUS_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+    $('fService').innerHTML += services.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    $('fStudio').innerHTML += Object.entries(STUDIO_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+    $('fDesigner').innerHTML += Object.entries(users).filter(([, u]) => u.reservations?.enabled)
+        .map(([s, u]) => `<option value="${s}">${escapeHtml(u.name || s)}</option>`).join('');
+    // Designér vidí nejdřív svoje rezervace (filtr jde přepnout).
+    if (!info.manageAll && info.slug && users[info.slug]?.reservations?.enabled) $('fDesigner').value = info.slug;
+    $('exportBtn').addEventListener('click', openExport);
+    ['fStatus', 'fService', 'fStudio', 'fDesigner'].forEach(id => $(id).addEventListener('change', render));
+    $('fWhen').addEventListener('change', subscribe);
+    $('newBtn').addEventListener('click', openNew);
+    $('modalClose').addEventListener('click', closeModal);
+    $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+    subscribe();
+}
+
+function subscribe() {
+    if (DEMO) {
+        const past = $('fWhen').value === 'past';
+        bookings = demoBookings().filter(b => past ? b.start < new Date() : b.end > new Date()).sort((a, b) => past ? b.start - a.start : a.start - b.start);
+        render();
+        return;
+    }
+    unsub?.();
+    const now = Date.now();
+    const past = $('fWhen').value === 'past';
+    const q = past
+        ? query(collection(db, 'res_bookings'), where('start', '>=', Timestamp.fromMillis(now - 30 * 864e5)), where('start', '<', Timestamp.fromMillis(now)), orderBy('start', 'desc'))
+        : query(collection(db, 'res_bookings'), where('start', '>=', Timestamp.fromMillis(now - 864e5)), orderBy('start'));
+    unsub = onSnapshot(q, snap => {
+        bookings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        render();
+        if (openId) renderDetail();
+    }, err => {
+        console.error(err);
+        $('list').innerHTML = '<div class="empty-state">Rezervace se nepodařilo načíst.</div>';
+    });
+}
+
+const userName = (slug) => users[slug]?.name ?? slug ?? '';
+
+function filtered() {
+    const f = { status: $('fStatus').value, service: $('fService').value, studio: $('fStudio').value, designer: $('fDesigner').value };
+    return bookings.filter(b =>
+        (!f.status || b.status === f.status) && (!f.service || b.serviceId === f.service) &&
+        (!f.studio || b.studio === f.studio) && (!f.designer || b.designerSlug === f.designer));
+}
+
+function statusChip(s) {
+    const cls = { requested: 'warn', confirmed: 'ok', done: 'blue', no_show: 'danger', cancelled: 'muted' }[s] || 'muted';
+    return `<span class="chip chip--${cls}">${escapeHtml(STATUS_LABELS[s] || s)}</span>`;
+}
+
+function render() {
+    const list = filtered();
+    if (!list.length) { $('list').innerHTML = '<div class="empty-state">Žádné rezervace.</div>'; return; }
+    let lastDay = '';
+    $('list').innerHTML = list.map(b => {
+        const day = dateKey(toDate(b.start));
+        const head = day !== lastDay ? `<h3 class="hint" style="margin:16px 0 6px;text-transform:uppercase;letter-spacing:.05em;font-weight:700">${escapeHtml(fmtDay(toDate(b.start)))}</h3>` : '';
+        lastDay = day;
+        const where = b.serviceType === 'home' ? (b.address || 'u klienta') : (STUDIO_LABELS[b.studio] || b.studio);
+        return `${head}<div class="card card--clickable bk" data-id="${b.id}">
+            <div>
+                <div class="bk__title">${fmtTime(b.start)}–${fmtTime(b.end)} · ${escapeHtml(b.client?.name || '')}</div>
+                <div class="bk__meta">${escapeHtml(b.serviceName || '')} · ${escapeHtml(where)} · ${escapeHtml(userName(b.designerSlug))}</div>
+                <div class="bk__meta">${escapeHtml(formatPhone(b.client?.phone))} · ${escapeHtml(SOURCE_LABELS[b.source] || b.source)}${b.utm?.campaign ? ' · ' + escapeHtml(b.utm.campaign) : ''}</div>
+            </div>
+            <div class="bk__side">${statusChip(b.status)}${raynetChip(b, info.raynetConfigured)}</div>
+        </div>`;
+    }).join('');
+    $('list').querySelectorAll('[data-id]').forEach(el => el.addEventListener('click', () => { openId = el.dataset.id; renderDetail(); }));
+}
+
+// ── detail ──
+
+function renderDetail() {
+    const b = bookings.find(x => x.id === openId);
+    if (!b) { closeModal(); return; }
+    const r = b.raynet || {};
+    const moved = r.movedInRaynet ? `<div class="banner banner--warn">V Raynetu je tahle schůzka na ${escapeHtml(fmtDateTime(r.movedInRaynet.start))}. Klient má platný termín z appky — pokud se má opravdu přesunout, přesuň ji tady (jinak dostane SMS na starý termín).</div>` : '';
+    const mine = canManage(b);
+    const canChange = mine && ['requested', 'confirmed'].includes(b.status);
+    $('modalBody').innerHTML = `
+        <h2>${escapeHtml(b.client?.name || '')}</h2>
+        <p class="hint">${escapeHtml(b.serviceName || '')} · ${statusChip(b.status)} ${raynetChip(b, info.raynetConfigured)}</p>
+        ${moved}
+        <h3>Termín</h3>
+        <dl class="info-grid">
+            <dt>Kdy</dt><dd>${escapeHtml(fmtDateTime(b.start))}–${fmtTime(b.end)}</dd>
+            <dt>Designér</dt><dd>${escapeHtml(userName(b.designerSlug))}</dd>
+            <dt>Kde</dt><dd>${escapeHtml(b.serviceType === 'home' ? `${b.address}${b.region ? ` (${regionName(b.region)})` : ''}` : (STUDIO_LABELS[b.studio] || ''))}</dd>
+        </dl>
+        <h3>Klient</h3>
+        <dl class="info-grid">
+            <dt>Telefon</dt><dd><a href="tel:${escapeHtml(b.client?.phone)}" style="color:var(--blue)">${escapeHtml(formatPhone(b.client?.phone))}</a></dd>
+            <dt>E-mail</dt><dd>${escapeHtml(b.client?.email || '—')}</dd>
+            <dt>Poznámka</dt><dd>${escapeHtml(b.note || '—')}</dd>
+            <dt>Zdroj</dt><dd>${escapeHtml(SOURCE_LABELS[b.source] || b.source)}${b.utm?.source ? ` · ${escapeHtml(b.utm.source)}/${escapeHtml(b.utm.medium || '')} ${escapeHtml(b.utm.campaign || '')}` : ''}</dd>
+            ${r.businessCaseId ? `<dt>Raynet OP</dt><dd>${escapeHtml(r.businessCaseId)}</dd>` : ''}
+            ${r.error ? `<dt>Raynet</dt><dd style="color:var(--danger)">${escapeHtml(r.error)}</dd>` : ''}
+        </dl>
+        <h3>Akce</h3>
+        ${mine ? '<div class="form-group"><label>Poznámka k akci (nepovinné)</label><input id="aNote" type="text" placeholder="např. záloha uhrazena"></div>' : ''}
+        <div class="btn-row">
+            ${!mine ? '<p class="hint">Tuhle rezervaci spravuje její designér nebo CX.</p>' : ''}
+            ${mine && b.status === 'requested' ? '<button class="btn btn--success" data-act="potvrdit">Potvrdit (záloha uhrazena)</button>' : ''}
+            ${canChange ? '<button class="btn btn--ghost" data-act="presunout">Přesunout…</button>' : ''}
+            ${mine && ['confirmed', 'no_show'].includes(b.status) ? '<button class="btn btn--ghost" data-act="done">Proběhlo</button>' : ''}
+            ${mine && ['confirmed', 'done'].includes(b.status) ? '<button class="btn btn--ghost" data-act="no_show">Nedorazil</button>' : ''}
+            ${canChange ? '<button class="btn btn--danger" data-act="zrusit">Zrušit rezervaci</button>' : ''}
+        </div>
+        <p class="form-error" id="aErr"></p>
+        <div id="moveBox"></div>
+        <h3>Historie</h3>
+        <div class="history">${(b.history || []).map(h => `<div>${escapeHtml(fmtDateTime(h.at))} · ${escapeHtml(userName(h.by))} · ${escapeHtml(h.action)}${h.note ? ' — ' + escapeHtml(h.note) : ''}</div>`).join('')}</div>`;
+    $('modalBody').querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('click', () => act(b, btn.dataset.act, btn)));
+    $('modal').classList.add('open');
+}
+
+async function act(b, action, btn) {
+    const note = $('aNote').value.trim();
+    if (action === 'presunout') { renderSlotPicker($('moveBox'), b.serviceId, { studio: b.studio, region: b.region }, b.designerSlug, (slot, ignoreLead) => doMove(b, slot, ignoreLead)); return; }
+    if (action === 'zrusit' && !confirm('Opravdu zrušit? Klient se o tom zatím automaticky nedozví (notifikace přijdou ve fázi 2).')) return;
+    btn.disabled = true;
+    try {
+        if (action === 'done' || action === 'no_show') await akce('stav', { id: b.id, status: action, note });
+        else await akce(action, { id: b.id, note });
+        showToast('Uloženo', 'success');
+        if (DEMO) closeModal();
+    } catch (err) {
+        $('aErr').textContent = err.message || 'Akce se nepovedla.';
+        btn.disabled = false;
+    }
+}
+
+async function doMove(b, slot, ignoreLead) {
+    try {
+        await akce('presunout', { id: b.id, start: slot.start, designerSlug: slot.designerSlug, ignoreLead });
+        showToast('Přesunuto', 'success');
+        if (DEMO) closeModal();
+    } catch (err) {
+        $('aErr').textContent = err.message || 'Přesun se nepovedl.';
+    }
+}
+
+// Výběr volného termínu přes funkci (stejná slotovací logika jako web).
+// Interní uživatel smí přebít minimální předstih — s varováním.
+// place = { studio } u konzultace, { region } u návrhu doma (jen designéři z oblasti).
+function renderSlotPicker(box, serviceId, place, designerSlug, onPick) {
+    const today = dateKey(new Date());
+    box.innerHTML = `
+        <div class="row2" style="margin-top:12px">
+            <div class="form-group"><label>Od data</label><input type="date" id="sFrom" value="${today}"></div>
+            <div class="form-group"><label>Designér</label><select id="sDesigner">${info.manageAll ? '<option value="">Kdokoliv volný</option>' : ''}
+                ${Object.entries(users).filter(([s, u]) => u.reservations?.enabled && (info.manageAll || s === info.slug)).map(([s, u]) => `<option value="${s}" ${s === designerSlug ? 'selected' : ''}>${escapeHtml(u.name || s)}</option>`).join('')}</select></div>
+        </div>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><input type="checkbox" id="sIgnore"> Přebít minimální předstih (jen po domluvě s klientem)</label>
+        <div class="slots" id="sList"><span class="hint">Načítám…</span></div>
+        <p class="hint hint--warn hidden" id="sWarn">Termín je kratší, než je minimální předstih služby.</p>
+        <div class="btn-row"><button class="btn btn--primary" id="sOk" disabled>Vybrat termín</button></div>`;
+    let picked = null;
+    const load = async () => {
+        $('sList').innerHTML = '<span class="hint">Načítám…</span>';
+        $('sOk').disabled = true; picked = null;
+        try {
+            const from = pragueToDate($('sFrom').value || today);
+            const { slots } = await akce('sloty', {
+                serviceId, studio: place.studio || null, region: place.region || null, designerSlug: $('sDesigner').value || null,
+                from: new Date(Math.max(from.getTime(), Date.now())).toISOString(),
+                to: pragueToDate(addDaysKey($('sFrom').value || today, 14)).toISOString(),
+                ignoreLead: $('sIgnore').checked,
+            });
+            if (!slots.length) { $('sList').innerHTML = '<span class="hint">V příštích 14 dnech nic volného.</span>'; return; }
+            $('sList').innerHTML = slots.map((s, i) => `<button class="slot" data-i="${i}">${escapeHtml(fmtDateTime(s.start))}<br><small>${escapeHtml(s.designerName || s.designerSlug)}</small></button>`).join('');
+            $('sList').querySelectorAll('.slot').forEach(el => el.addEventListener('click', () => {
+                $('sList').querySelectorAll('.slot').forEach(x => x.classList.toggle('selected', x === el));
+                picked = slots[+el.dataset.i];
+                $('sOk').disabled = false;
+            }));
+        } catch (err) {
+            $('sList').innerHTML = `<span class="form-error">${escapeHtml(err.message)}</span>`;
+        }
+    };
+    ['sFrom', 'sDesigner', 'sIgnore'].forEach(id => $(id).addEventListener('change', () => {
+        $('sWarn').classList.toggle('hidden', !$('sIgnore').checked);
+        load();
+    }));
+    $('sOk').addEventListener('click', () => picked && onPick(picked, $('sIgnore').checked));
+    load();
+}
+
+// ── nová rezervace po telefonu ──
+
+function openNew() {
+    openId = null;
+    $('modalBody').innerHTML = `
+        <h2>Rezervace po telefonu</h2>
+        <div class="row2" style="margin-top:12px">
+            <div class="form-group"><label>Služba</label><select id="nService">${services.filter(s => s.active !== false).map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select></div>
+            <div class="form-group" id="nStudioWrap"><label>Studio</label><select id="nStudio">${Object.entries(STUDIO_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+            <div class="form-group hidden" id="nRegionWrap"><label>Oblast klienta</label><select id="nRegion">${homeRegions.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')}</select></div>
+        </div>
+        <div class="row2">
+            <div class="form-group"><label>Jméno a příjmení *</label><input id="nName" type="text"></div>
+            <div class="form-group"><label>Telefon *</label><input id="nPhone" type="tel"></div>
+        </div>
+        <div class="row2">
+            <div class="form-group"><label>E-mail</label><input id="nEmail" type="email"></div>
+            <div class="form-group"><label>Zdroj</label><select id="nSource"><option value="phone">Telefon</option><option value="cx">CX</option><option value="lead">Lead</option></select></div>
+        </div>
+        <div class="form-group hidden" id="nAddrWrap"><label>Adresa (návrh doma) *</label><input id="nAddress" type="text"></div>
+        <div class="form-group"><label>Poznámka</label><textarea id="nNote" rows="2"></textarea></div>
+        <div class="form-group hidden" id="nStatusWrap"><label class="check-list" style="text-transform:none"><input type="checkbox" id="nConfirmed"> Záloha už uhrazena — rovnou potvrdit</label></div>
+        <h3>Termín</h3>
+        <div id="nSlots"></div>
+        <p class="form-error" id="aErr"></p>`;
+    const refresh = () => {
+        const s = services.find(x => x.id === $('nService').value);
+        $('nStudioWrap').classList.toggle('hidden', s?.type !== 'studio');
+        $('nRegionWrap').classList.toggle('hidden', s?.type !== 'home');
+        $('nAddrWrap').classList.toggle('hidden', s?.type !== 'home');
+        $('nStatusWrap').classList.toggle('hidden', !s?.requiresConfirmation);
+        renderSlotPicker($('nSlots'), s.id, s.type === 'studio' ? { studio: $('nStudio').value } : { region: $('nRegion').value }, null, createNew);
+    };
+    ['nService', 'nStudio', 'nRegion'].forEach(id => $(id).addEventListener('change', refresh));
+    refresh();
+    $('modal').classList.add('open');
+}
+
+async function createNew(slot, ignoreLead) {
+    const s = services.find(x => x.id === $('nService').value);
+    try {
+        const res = await akce('vytvorit', {
+            serviceId: s.id, studio: s.type === 'studio' ? $('nStudio').value : null, region: s.type === 'home' ? $('nRegion').value : null,
+            designerSlug: slot.designerSlug, start: slot.start, ignoreLead,
+            name: $('nName').value, phone: $('nPhone').value, email: $('nEmail').value,
+            address: $('nAddress').value, note: $('nNote').value, source: $('nSource').value,
+            status: $('nConfirmed').checked ? 'confirmed' : undefined,
+        });
+        showToast('Rezervace založena', 'success');
+        if (DEMO) closeModal(); else { openId = res.id; renderDetail(); }
+    } catch (err) {
+        $('aErr').textContent = err.message || 'Rezervaci se nepodařilo založit.';
+    }
+}
+
+// ── aktivita za měsíc (export pro Matouše) ──
+// Designéři dokládají aktivitu: počty schůzek po designérech + detail do CSV.
+// Každá schůzka = obchodní případ v Raynetu (sloupec OP) — obrat z OP doplní F3.
+
+function openExport() {
+    openId = null;
+    const now = new Date();
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const val = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+    $('modalBody').innerHTML = `
+        <h2>Aktivita za měsíc</h2>
+        <p class="hint">${info.manageAll ? 'Všichni designéři' : 'Tvoje schůzky'} — počty schůzek a detail do Excelu.</p>
+        <div class="toolbar" style="margin-top:12px"><input type="month" id="eMonth" value="${val}" style="color-scheme:dark"><button class="btn btn--primary btn--sm" id="eCsv">Stáhnout CSV</button></div>
+        <div id="eSummary"><div class="loader"><div class="spinner"></div>Načítám…</div></div>`;
+    $('eMonth').addEventListener('change', loadExport);
+    $('eCsv').addEventListener('click', downloadCsv);
+    $('modal').classList.add('open');
+    loadExport();
+}
+
+let exportRows = [];
+async function loadExport() {
+    const [y, m] = $('eMonth').value.split('-').map(Number);
+    const fromKey = `${y}-${String(m).padStart(2, '0')}-01`;
+    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const from = pragueToDate(fromKey), to = pragueToDate(next);
+    let rows;
+    if (DEMO) rows = demoBookings();
+    else {
+        const snap = await getDocs(query(collection(db, 'res_bookings'), where('start', '>=', Timestamp.fromDate(from)), where('start', '<', Timestamp.fromDate(to)), orderBy('start')));
+        rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    exportRows = rows.filter(b => info.manageAll || b.designerSlug === info.slug);
+    const per = {};
+    for (const b of exportRows) {
+        const p = per[b.designerSlug] ||= { total: 0, done: 0, no_show: 0, cancelled: 0, open: 0, web: 0, op: 0 };
+        p.total++;
+        if (b.status === 'done') p.done++;
+        else if (b.status === 'no_show') p.no_show++;
+        else if (b.status === 'cancelled') p.cancelled++;
+        else p.open++;
+        if (b.source === 'web') p.web++;
+        if (b.raynet?.businessCaseId) p.op++;
+    }
+    const list = Object.entries(per).sort((a, b) => b[1].total - a[1].total);
+    $('eSummary').innerHTML = list.length ? `<div class="table-wrap"><table class="tbl" style="margin-top:8px">
+        <tr><th>Designér</th><th>Schůzek</th><th>Proběhlo</th><th>Nedorazil</th><th>Zrušeno</th><th>Čeká / potvrzeno</th><th>Z webu</th><th>OP v Raynetu</th></tr>
+        ${list.map(([slug, p]) => `<tr><td>${escapeHtml(userName(slug))}</td><td><strong>${p.total}</strong></td><td>${p.done}</td><td>${p.no_show}</td><td>${p.cancelled}</td><td>${p.open}</td><td>${p.web}</td><td>${p.op}</td></tr>`).join('')}
+        </table></div>` : '<div class="empty-state">V tomhle měsíci žádné schůzky.</div>';
+}
+
+function downloadCsv() {
+    const cols = ['Datum', 'Čas', 'Designér', 'Služba', 'Studio / oblast', 'Klient', 'Telefon', 'E-mail', 'Stav', 'Zdroj', 'Kampaň', 'Raynet OP', 'ID rezervace'];
+    const esc = (v) => { const t = String(v ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const lines = exportRows.map(b => [
+        dateKey(toDate(b.start)), fmtTime(b.start), userName(b.designerSlug), b.serviceName,
+        b.serviceType === 'home' ? `doma – ${regionName(b.region)}` : (STUDIO_LABELS[b.studio] || b.studio),
+        b.client?.name, b.client?.phone, b.client?.email, STATUS_LABELS[b.status] || b.status,
+        SOURCE_LABELS[b.source] || b.source, b.utm?.campaign || '', b.raynet?.businessCaseId || '', b.id,
+    ].map(esc).join(';'));
+    // Středník + BOM kvůli českému Excelu (stejně jako export v CX dashboardu).
+    const blob = new Blob(['\ufeff' + [cols.join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `rezervace-aktivita-${$('eMonth').value}.csv` });
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+function closeModal() { openId = null; $('modal').classList.remove('open'); }
+
+init().catch(err => {
+    console.error(err);
+    $('list').innerHTML = '<div class="empty-state">Stránku se nepodařilo načíst.</div>';
+});
+</script>
+</body>
+</html>

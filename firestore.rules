@@ -53,6 +53,61 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ── MODUL REZERVACE (docs/rezervace-spec.md, kap. 9) ────────────────────
+    // users/{slug}.reservations zapisuje jen Cloud Function rezervaceAkce
+    // (pravidlo pro users výše se kvůli tomu nerozvolňuje).
+
+    // Služby a konfigurace modulu: čte každý přihlášený, mění jen admin/HR.
+    match /res_services/{serviceId} {
+      allow read: if isSignedIn();
+      allow write: if isHrOrAdmin();
+    }
+    match /config/rezervace {
+      allow read: if isSignedIn();
+      allow write: if isHrOrAdmin();
+    }
+
+    // Dostupnost designéra: bloky si vypisuje designér sám (designerSlug == jeho
+    // slug), admin/HR za kohokoliv. Typy: 'flex' (volno — studio a/nebo doma),
+    // 'shift' (směna ve studiu, jen konzultace).
+    // Zrušit/zkrátit dostupnost designér NESMÍ (rozhodnutí 2026-11-05 — volá
+    // Matoušovi, ten ji upraví jako admin). Výjimka: oprava překlepu do 30 minut
+    // od založení bloku. createdAt musí být čas serveru, ať se nedá obejít.
+    function validAvailability(d) {
+      return d.kind in ['flex', 'shift'] &&
+        d.start is timestamp && d.end is timestamp && d.start < d.end &&
+        d.serviceTypes is list && d.serviceTypes.size() > 0 && d.serviceTypes.hasOnly(['studio', 'home']) &&
+        (d.kind == 'flex' || d.serviceTypes == ['studio']) &&
+        (!('studio' in d.serviceTypes) || d.studio in ['praha', 'brno', 'hradec', 'pardubice']);
+    }
+    function withinGrace() {
+      return request.time < resource.data.createdAt + duration.value(30, 'm');
+    }
+    match /res_availability/{blockId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validAvailability(request.resource.data) &&
+        request.resource.data.createdAt == request.time &&
+        (request.resource.data.designerSlug == mySlug() || isHrOrAdmin());
+      allow update: if isSignedIn() && validAvailability(request.resource.data) &&
+        request.resource.data.createdAt == resource.data.createdAt && (
+          isHrOrAdmin() ||
+          (resource.data.designerSlug == mySlug() && request.resource.data.designerSlug == mySlug() && withinGrace())
+        );
+      allow delete: if isSignedIn() && (isHrOrAdmin() || (resource.data.designerSlug == mySlug() && withinGrace()));
+    }
+
+    // Rezervace a obsazenost z Raynetu: čtení přihlášeným, zápis jen přes
+    // Cloud Functions (validace, historie, Raynet push). res_locks a
+    // _raynet_mock nemají pravidlo → klient je nevidí.
+    match /res_bookings/{bookingId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+    match /res_busy/{slug} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     // ── MODUL ADAPTACE ──────────────────────────────────────────────────────
 
     // Pomocné funkce

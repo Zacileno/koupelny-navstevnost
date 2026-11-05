@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nastavení rezervací — Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../shared/shared.css">
+    <link rel="stylesheet" href="rezervace.css">
+    <style>
+        .page-wrap { max-width: 1100px; }
+        .section-h { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); margin: 26px 0 10px; }
+        .hours { display: grid; grid-template-columns: 110px repeat(7, minmax(0, 1fr)); gap: 4px; font-size: 12px; align-items: center; }
+        .hours input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 5px; font-family: var(--font); font-size: 11px; }
+        .hours .hd { color: var(--text-dim); font-weight: 700; text-align: center; }
+        /* Ikona „i“ s vysvětlivkou u sloupců služeb */
+        .info { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--blue-border); background: var(--blue-dim); color: var(--blue); font-size: 10px; font-weight: 700; font-style: normal; text-transform: lowercase; letter-spacing: 0; cursor: help; vertical-align: 1px; margin-left: 3px; }
+        .info:hover, .info:focus { outline: none; border-color: var(--blue); background: var(--blue); color: #fff; }
+        .tip { position: fixed; z-index: 300; width: 260px; background: var(--surface3); color: var(--text); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; font-weight: 500; line-height: 1.45; text-transform: none; letter-spacing: 0; box-shadow: var(--shadow); pointer-events: none; }
+        .tip[hidden] { display: none; }
+        @media (max-width: 760px) { .hours { grid-template-columns: 1fr; } .hours .hd { display: none; } }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Rezervace</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="userName">…</span>
+        <button class="btn-logout" id="logoutBtn">Odhlásit</button>
+    </div>
+</div>
+
+<div class="page-wrap">
+    <nav class="subnav">
+        <a href="kalendar.html" data-keep>Můj kalendář</a>
+        <a href="studio.html" data-keep>Kalendář studia</a>
+        <a href="prehled.html" data-keep>Přehled rezervací</a>
+        <a href="nastaveni.html" class="active" data-keep>Nastavení</a>
+    </nav>
+    <div id="banner"></div>
+
+    <div class="section-h">Služby — výchozí pro všechny</div>
+    <p class="hint" style="margin-bottom:8px">Výchozí hodnoty pro všechny designéry. Délku, „nejdřív/nejpozději za“ a pauzu si může každý upravit pro sebe (Moje nastavení), ty to můžeš u konkrétního člověka níž. Cenu a potvrzování CX mění jen admin. Na ikonu <span class="info" aria-hidden="true">i</span> najeď (nebo klikni) pro vysvětlení.</p>
+    <div class="card table-wrap"><table class="tbl" id="servicesTbl"></table></div>
+
+    <div class="section-h">Designéři</div>
+    <p class="hint" style="margin-bottom:8px">Studia, oblasti, služby a profil si každý může upravit i sám v „Můj kalendář → Moje nastavení“. Jen tady (admin): zapnutí rezervací, Raynet ID (vypíše <code>node scripts/set-raynet-config.js --check</code>), stálá směna a „Spravuje všechny rezervace“.</p>
+    <div class="card table-wrap"><table class="tbl" id="designersTbl"></table></div>
+
+    <div class="section-h">Studia a otevírací doby</div>
+    <p class="hint" style="margin-bottom:8px">Formát „09:00-18:00“, prázdné = zavřeno. Bloky mimo otevírací dobu kalendář jen upozorní, nezablokuje.</p>
+    <div class="card" id="studiosBox"></div>
+
+    <div class="section-h">Obecné</div>
+    <div class="card" id="generalBox"></div>
+    <div class="btn-row"><button class="btn btn--primary" id="saveConfig">Uložit studia a obecné</button></div>
+</div>
+
+<script type="module">
+import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
+import { DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS, overridesFormHtml, readOverrides } from './rezervace-common.js';
+
+const { collection, getDocs, getDoc, doc, setDoc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
+
+const DAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+const homeRegions = () => config.homeRegions?.length ? config.homeRegions : DEFAULT_HOME_REGIONS;
+const DEFAULT_RAYNET = { busyEntities: ['event', 'meeting'], writeEntity: 'event', cancelMode: 'delete', createContact: true, liveCheck: true };
+
+let db = null;
+let users = {}, services = [], config = {};
+const $ = (id) => document.getElementById(id);
+
+async function init() {
+    if (DEMO) {
+        // Nastavení je jen pro admina — designér sem nemá přístup ani v demu.
+        if (!DEMO_ADMIN) { location.href = 'kalendar.html?demo=1&role=designer'; return; }
+        users = DEMO_USERS; services = DEMO_SERVICES;
+        $('userName').textContent = 'Demo mód';
+        document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
+    } else {
+        const session = await requireAuth('/login.html');
+        if (!session) return;
+        if (!['hr', 'admin'].includes(session.profile?.platformRole)) { location.href = 'kalendar.html'; return; }
+        $('userName').textContent = session.profile?.name ?? session.user.email;
+        $('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+        ({ db } = await initFirebase());
+        const [uSnap, sSnap, cSnap] = await Promise.all([getDocs(collection(db, 'users')), getDocs(collection(db, 'res_services')), getDoc(doc(db, 'config', 'rezervace'))]);
+        users = Object.fromEntries(uSnap.docs.map(d => [d.id, d.data()]));
+        services = sSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+        config = cSnap.exists() ? cSnap.data() : {};
+        if (!services.length) $('banner').innerHTML = '<div class="banner banner--warn">Žádné služby — spusť nejdřív <code>node scripts/seed-rezervace.js --apply</code>.</div>';
+    }
+    renderServices();
+    renderDesigners();
+    renderStudios();
+    renderGeneral();
+    $('saveConfig').addEventListener('click', saveConfig);
+}
+
+// ── vysvětlivky u ikony „i“ ──
+// Plovoucí bublina (position: fixed), ať ji neořízne tabulka se scrollem.
+// Hover na desktopu, klik/focus na mobilu.
+let tipEl = null;
+function showTip(target) {
+    tipEl ??= Object.assign(document.createElement('div'), { className: 'tip', role: 'tooltip' });
+    if (!tipEl.isConnected) document.body.appendChild(tipEl);
+    tipEl.textContent = target.dataset.tip;
+    const r = target.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - 130), window.innerWidth - 268);
+    tipEl.style.left = `${left}px`;
+    tipEl.style.top = `${r.bottom + 6}px`;
+    tipEl.hidden = false;
+}
+const hideTip = () => { if (tipEl) tipEl.hidden = true; };
+document.addEventListener('mouseover', e => { const t = e.target.closest?.('[data-tip]'); t ? showTip(t) : hideTip(); });
+// Klik na ikonu (mobil) — focus sám neproběhne u všech prohlížečů.
+document.addEventListener('click', e => { const t = e.target.closest?.('[data-tip]'); if (t) { t.focus(); showTip(t); } });
+document.addEventListener('focusin', e => { const t = e.target.closest?.('[data-tip]'); if (t) showTip(t); });
+document.addEventListener('focusout', hideTip);
+document.addEventListener('scroll', hideTip, true);
+
+// ── služby ──
+
+// [pole, nadpis, typ, vysvětlivka pod ikonou „i“]
+const SERVICE_COLS = [
+    ['name', 'Název', 'text', 'Jak se služba jmenuje ve formuláři pro klienty.'],
+    ['durationMin', 'Délka (min)', 'number', 'Jak dlouho schůzka trvá. Na tolik minut se designérovi zablokuje kalendář.'],
+    ['minLeadHours', 'Nejdřív za (hodin)', 'number', 'Nejkratší doba od rezervace do schůzky. 1 = klient může rezervovat termín za hodinu. 48 = nejdřív za 2 dny (rezervuje-li ve středu v 15:00, první nabídnutý termín je v pátek v 15:00).'],
+    ['horizonDays', 'Nejpozději za (dní)', 'number', 'Jak daleko do budoucna klient termíny vidí. 60 = dnes si může rezervovat nejpozději termín za 60 dní, i kdyby designér měl vypsané volno později.'],
+    ['bufferMin', 'Pauza mezi schůzkami (min)', 'number', 'Volný čas, který musí zůstat před a po schůzce (přejezd, příprava). 0 = schůzky můžou jít hned po sobě.'],
+    ['priceText', 'Cena', 'text', 'Jen text, který klient uvidí u služby (např. „zdarma“). Platba se v systému neřeší.'],
+    ['requiresConfirmation', 'Potvrzuje CX', 'bool', 'Zapnuto = rezervace z webu čeká, než ji CX potvrdí (např. po úhradě zálohy). Vypnuto = klient má termín rovnou potvrzený.'],
+    ['active', 'Aktivní', 'bool', 'Vypnutá služba se klientům nenabízí. Už domluvené rezervace zůstávají.'],
+];
+const infoIcon = (text) => `<span class="info" tabindex="0" role="button" aria-label="${escapeHtml(text)}" data-tip="${escapeHtml(text)}">i</span>`;
+
+function renderServices() {
+    const cell = (s, [key, , type]) => {
+        const v = s[key];
+        if (type === 'bool') return `<input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}>`;
+        return `<input type="${type}" data-k="${key}" value="${escapeHtml(v ?? '')}" ${type === 'number' ? 'min="0"' : ''}>`;
+    };
+    $('servicesTbl').innerHTML = `<tr>${SERVICE_COLS.map(c => `<th>${c[1]}&nbsp;${infoIcon(c[3])}</th>`).join('')}<th></th></tr>` +
+        services.map(s => `<tr data-id="${s.id}">${SERVICE_COLS.map(c => `<td>${cell(s, c)}</td>`).join('')}
+            <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td></tr>`).join('');
+    $('servicesTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveService(btn.closest('tr'))));
+}
+
+async function saveService(tr) {
+    const data = {};
+    tr.querySelectorAll('[data-k]').forEach(el => {
+        const col = SERVICE_COLS.find(c => c[0] === el.dataset.k);
+        data[el.dataset.k] = col[2] === 'bool' ? el.checked : col[2] === 'number' ? Math.max(0, Number(el.value) || 0) : el.value.trim();
+    });
+    if (!data.name || data.durationMin < 15) { showToast('Název a délka (min. 15 min) jsou povinné', 'error'); return; }
+    if (DEMO) { showToast('Demo: služba by se uložila'); return; }
+    await setDoc(doc(db, 'res_services', tr.dataset.id), { ...data, updatedAt: Timestamp.now() }, { merge: true });
+    showToast('Služba uložena', 'success');
+}
+
+// ── designéři ──
+
+function renderDesigners() {
+    const list = Object.entries(users)
+        // Všichni aktivní (ne externí) — i ne-designéři kvůli „Spravuje všechny rezervace“ (CX).
+        .filter(([, u]) => u.active !== false && !u.external)
+        .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'cs'));
+    $('designersTbl').innerHTML = `<tr><th>Člověk</th><th>Rezervace</th><th>Studia (konzultace)</th><th>Oblasti (návrh doma)</th><th>Služby</th><th>Raynet ID</th><th></th></tr>` +
+        list.map(([slug, u]) => {
+            const r = u.reservations || {};
+            // Bez vyplněných oblastí jezdí designér tam, kde má studia (stejně jako ve functions).
+            const regions = Array.isArray(r.homeRegions) ? r.homeRegions : (r.studios || []);
+            return `<tr data-slug="${slug}">
+                <td>${escapeHtml(u.name || slug)}<br><span class="hint">${escapeHtml(u.position || '')}</span></td>
+                <td><input type="checkbox" data-enabled ${r.enabled ? 'checked' : ''}></td>
+                <td><div class="check-list">${Object.entries(STUDIO_LABELS).map(([k, v]) => `<label><input type="checkbox" data-studio="${k}" ${(r.studios || []).includes(k) ? 'checked' : ''}>${v}</label>`).join('')}</div></td>
+                <td><div class="check-list">${homeRegions().map(x => `<label><input type="checkbox" data-region="${x.id}" ${regions.includes(x.id) ? 'checked' : ''}>${escapeHtml(x.name)}</label>`).join('')}</div></td>
+                <td><div class="check-list">${services.map(s => `<label><input type="checkbox" data-service="${s.id}" ${(r.services || []).includes(s.id) ? 'checked' : ''}>${escapeHtml(s.name)}</label>`).join('')}</div></td>
+                <td style="width:90px"><input type="text" inputmode="numeric" data-raynet value="${escapeHtml(r.raynetUserId ?? '')}"></td>
+                <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td>
+            </tr>
+            <tr data-profile="${slug}"><td></td><td colspan="6">
+                <div class="row2" style="gap:8px">
+                    <input type="text" data-f="publicPosition" placeholder="Pozice na webu (výchozí: ${escapeHtml(u.position || '—')})" value="${escapeHtml(r.publicPosition || '')}">
+                    <input type="text" data-f="photoUrl" placeholder="Fotka — https:// odkaz" value="${escapeHtml(r.photoUrl || '')}">
+                </div>
+                <input type="text" data-f="bio" style="margin-top:6px" maxlength="400" placeholder="Krátké představení pro klienty (na co se specializuje)" value="${escapeHtml(r.bio || '')}">
+                <div class="check-list" style="margin-top:6px">
+                    <label>Stálá směna (vždy ve studiu dle otevírací doby):
+                        <select data-f="permanentShift" style="margin-left:4px"><option value="">ne</option>${Object.entries(STUDIO_LABELS).map(([k, v]) => `<option value="${k}" ${r.permanentShift === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+                    <label><input type="checkbox" data-manage-all ${r.manageAll ? 'checked' : ''}> Spravuje všechny rezervace (CX, vedení)</label>
+                </div>
+                <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Vlastní parametry schůzek${Object.keys(r.overrides || {}).length || r.travelMin != null ? ' (nastavené)' : ''}</summary>
+                    <div data-ov-root>${overridesFormHtml(services, r.overrides, r.travelMin, config.travelMin ?? 60)}</div></details>
+                <span class="hint">Přímý odkaz: <code>/rezervovat/?designer=${escapeHtml(slug)}</code></span>
+            </td></tr>`;
+        }).join('');
+    $('designersTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveDesigner(btn)));
+}
+
+async function saveDesigner(btn) {
+    const tr = btn.closest('tr');
+    const profile = $('designersTbl').querySelector(`[data-profile="${tr.dataset.slug}"]`);
+    const f = (k) => profile.querySelector(`[data-f="${k}"]`).value.trim();
+    const reservations = {
+        enabled: tr.querySelector('[data-enabled]').checked,
+        studios: [...tr.querySelectorAll('[data-studio]:checked')].map(e => e.dataset.studio),
+        homeRegions: [...tr.querySelectorAll('[data-region]:checked')].map(e => e.dataset.region),
+        services: [...tr.querySelectorAll('[data-service]:checked')].map(e => e.dataset.service),
+        raynetUserId: tr.querySelector('[data-raynet]').value.trim(),
+        publicPosition: f('publicPosition'),
+        photoUrl: f('photoUrl'),
+        bio: f('bio'),
+        permanentShift: profile.querySelector('[data-f="permanentShift"]').value || null,
+        manageAll: profile.querySelector('[data-manage-all]').checked,
+        ...readOverrides(profile.querySelector('[data-ov-root]')),
+    };
+    btn.disabled = true;
+    try {
+        await akce('nastavitDesignera', { slug: tr.dataset.slug, reservations });
+        showToast(DEMO ? 'Demo: uloženo by bylo' : 'Designér uložen', 'success');
+    } catch (err) {
+        showToast(err.message || 'Uložení selhalo', 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ── studia + obecné (config/rezervace) ──
+
+function renderStudios() {
+    const studios = config.studios || {};
+    $('studiosBox').innerHTML = Object.entries(STUDIO_LABELS).map(([k, label]) => {
+        const s = studios[k] || {};
+        const h = s.openingHours || {};
+        return `<div data-studio-box="${k}" style="margin-bottom:16px">
+            <div class="row2"><div class="form-group"><label>${label} — název</label><input data-f="name" value="${escapeHtml(s.name || label)}"></div>
+            <div class="form-group"><label>Ulice a č. p. <span class="info" tabindex="0" data-tip="Adresa studia jde ke klientovi v Raynetu (kvůli středisku v Pohodě) a ukazuje se klientům ve formuláři.">i</span></label><input data-f="street" value="${escapeHtml(s.street || '')}"></div></div>
+            <div class="row2"><div class="form-group"><label>Město</label><input data-f="city" value="${escapeHtml(s.city || '')}"></div>
+            <div class="form-group"><label>PSČ</label><input data-f="zipCode" value="${escapeHtml(s.zipCode || '')}"></div></div>
+            <div class="hours"><span></span>${DAYS.map(d => `<span class="hd">${d}</span>`).join('')}
+            <span class="hint">Otevírací doba</span>${DAYS.map((d, i) => {
+                const v = h[String(i + 1)];
+                return `<input data-day="${i + 1}" placeholder="${d} zavřeno" value="${v ? `${v[0]}-${v[1]}` : ''}">`;
+            }).join('')}</div>
+        </div>`;
+    }).join('');
+}
+
+function renderGeneral() {
+    const r = { ...DEFAULT_RAYNET, ...(config.raynet || {}) };
+    $('generalBox').innerHTML = `
+        <div class="row2">
+            <div class="form-group"><label>Hromadný rezervační e-mail (F2)</label><input id="gBulk" type="email" value="${escapeHtml(config.bulkEmail || '')}"></div>
+            <div class="form-group"><label>Alert „prázdný kalendář“ — komu (čárkou)</label><input id="gAlert" value="${escapeHtml((config.alertRecipients || []).join(', '))}"></div>
+        </div>
+        <div class="row2">
+            <div class="form-group"><label>Odkaz na zásady osobních údajů (veřejný formulář)</label><input id="gPrivacy" type="url" value="${escapeHtml(config.privacyUrl || '')}"></div>
+            <div class="form-group"><label>Max. aktivních rezervací na 1 telefon (web)</label><input id="gMaxPhone" type="number" min="0" value="${config.maxActivePerPhone ?? 3}"></div>
+        </div>
+        <div class="row2">
+            <div class="form-group"><label>Infolinka (zobrazí se klientům) <span class="info" tabindex="0" data-tip="Jedno číslo pro klienty, kteří nenajdou termín nebo chtějí raději volat. Ukazuje se na rezervační stránce.">i</span></label><input id="gInfoline" type="tel" value="${escapeHtml(config.infolinePhone || '')}" placeholder="+420 …"></div>
+            <div class="form-group"><label>Čas na přesun u návrhu doma (min) <span class="info" tabindex="0" data-tip="Kolik minut musí zůstat volných před a po návrhu u klienta doma (cesta). Mezi dvěma konzultacemi ve studiu se nepočítá.">i</span></label><input id="gTravel" type="number" min="0" step="15" value="${config.travelMin ?? 60}"></div>
+        </div>
+        <div class="check-list" style="margin-bottom:14px">
+            <label><input type="checkbox" id="gHolidays" ${config.blockHolidays !== false ? 'checked' : ''}> Ve státní svátek nic nenabízet</label>
+        </div>
+        <div class="row2">
+            <div class="form-group"><label>Raynet — zakládat jako</label><select id="rWrite">
+                <option value="event" ${r.writeEntity === 'event' ? 'selected' : ''}>Událost</option>
+                <option value="meeting" ${r.writeEntity === 'meeting' ? 'selected' : ''}>Schůzka</option></select></div>
+            <div class="form-group"><label>Raynet — při zrušení</label><select id="rCancel">
+                <option value="delete" ${r.cancelMode === 'delete' ? 'selected' : ''}>smazat událost</option>
+                <option value="rename" ${r.cancelMode === 'rename' ? 'selected' : ''}>přejmenovat na „ZRUŠENO“</option></select></div>
+        </div>
+        <div class="check-list">
+            <label><input type="checkbox" id="rBusyEvent" ${r.busyEntities.includes('event') ? 'checked' : ''}> Obsazenost z Událostí</label>
+            <label><input type="checkbox" id="rBusyMeeting" ${r.busyEntities.includes('meeting') ? 'checked' : ''}> Obsazenost ze Schůzek</label>
+            <label><input type="checkbox" id="rCreate" ${r.createContact ? 'checked' : ''}> Zakládat klienta, když se nenajde</label>
+            <label><input type="checkbox" id="rOp" ${r.createBusinessCase !== false ? 'checked' : ''}> Každá schůzka = obchodní případ</label>
+            <label>Kategorie OP (ID v Raynetu): <input type="text" inputmode="numeric" id="rOpCat" value="${escapeHtml(r.businessCaseCategory ?? '')}" style="width:80px;margin-left:4px"></label>
+            <label><input type="checkbox" id="rLive" ${r.liveCheck ? 'checked' : ''}> Živá kontrola Raynetu před zápisem</label>
+        </div>`;
+}
+
+function parseHours(v) {
+    const m = /^(\d{1,2}):?(\d{2})?\s*-\s*(\d{1,2}):?(\d{2})?$/.exec(v.trim());
+    if (!m) return null;
+    const t = (h, mm) => `${String(+h).padStart(2, '0')}:${mm || '00'}`;
+    return [t(m[1], m[2]), t(m[3], m[4])];
+}
+
+async function saveConfig() {
+    const studios = {};
+    let bad = false;
+    document.querySelectorAll('[data-studio-box]').forEach(box => {
+        const openingHours = {};
+        box.querySelectorAll('[data-day]').forEach(inp => {
+            if (!inp.value.trim()) return;
+            const h = parseHours(inp.value);
+            if (!h || h[0] >= h[1]) { bad = true; inp.style.borderColor = 'var(--danger)'; return; }
+            inp.style.borderColor = '';
+            openingHours[inp.dataset.day] = h;
+        });
+        const f = (k) => box.querySelector(`[data-f="${k}"]`).value.trim();
+        const street = f('street'), city = f('city'), zipCode = f('zipCode');
+        studios[box.dataset.studioBox] = { name: f('name'), street, city, zipCode, address: [street, [zipCode, city].filter(Boolean).join(' ')].filter(Boolean).join(', '), openingHours };
+    });
+    if (bad) { showToast('Opravte otevírací dobu (formát 09:00-18:00)', 'error'); return; }
+    const busyEntities = [$('rBusyEvent').checked && 'event', $('rBusyMeeting').checked && 'meeting'].filter(Boolean);
+    const data = {
+        studios,
+        bulkEmail: $('gBulk').value.trim(),
+        alertRecipients: $('gAlert').value.split(',').map(s => s.trim()).filter(Boolean),
+        privacyUrl: $('gPrivacy').value.trim(),
+        maxActivePerPhone: Math.max(0, Number($('gMaxPhone').value) || 0),
+        infolinePhone: $('gInfoline').value.trim(),
+        travelMin: Math.max(0, Number($('gTravel').value) || 0),
+        blockHolidays: $('gHolidays').checked,
+        raynet: {
+            ...(config.raynet || {}), busyEntities, writeEntity: $('rWrite').value, cancelMode: $('rCancel').value,
+            createContact: $('rCreate').checked, liveCheck: $('rLive').checked,
+            createBusinessCase: $('rOp').checked, businessCaseCategory: Number($('rOpCat').value) || null,
+        },
+        updatedAt: DEMO ? null : Timestamp.now(),
+    };
+    if (DEMO) { showToast('Demo: nastavení by se uložilo'); return; }
+    // Celý dokument, ne merge — jinak by smazaný den otevírací doby v mapě zůstal.
+    config = { ...config, ...data };
+    await setDoc(doc(db, 'config', 'rezervace'), config);
+    showToast('Nastavení uloženo (functions si ho načtou do minuty)', 'success');
+}
+
+init().catch(err => {
+    console.error(err);
+    $('banner').innerHTML = '<div class="banner banner--warn">Nastavení se nepodařilo načíst.</div>';
+});
+</script>
+</body>
+</html>

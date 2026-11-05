@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Můj kalendář — Rezervace — Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../shared/shared.css">
+    <link rel="stylesheet" href="rezervace.css">
+    <style>.page-wrap { max-width: 1200px; }</style>
+</head>
+<body>
+<div class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Rezervace</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="userName">…</span>
+        <button class="btn-logout" id="logoutBtn">Odhlásit</button>
+    </div>
+</div>
+
+<div class="page-wrap">
+    <nav class="subnav">
+        <a href="kalendar.html" class="active" data-keep>Můj kalendář</a>
+        <a href="studio.html" data-keep>Kalendář studia</a>
+        <a href="prehled.html" data-keep>Přehled rezervací</a>
+        <a href="nastaveni.html" data-keep id="navSettings" class="hidden">Nastavení</a>
+    </nav>
+
+    <p class="hint" style="margin-bottom:12px">V appce si vypisuješ, kdy můžeš: <strong>na schůzky</strong> (ve studiu a/nebo u klienta) nebo <strong>směnu ve studiu</strong>. Kde nic nevypíšeš, tam tě klienti nevidí. Šedě je obsazenost z Raynetu.</p>
+
+    <div class="toolbar">
+        <button class="btn btn--ghost btn--sm" id="prevWeek">←</button>
+        <button class="btn btn--ghost btn--sm" id="thisWeek">Tento týden</button>
+        <button class="btn btn--ghost btn--sm" id="nextWeek">→</button>
+        <strong id="weekLabel" style="margin-left:6px"></strong>
+        <span class="spacer"></span>
+        <select id="designerSelect" class="hidden" aria-label="Designér"></select>
+        <button class="btn btn--ghost btn--sm" id="copyWeek">Zkopírovat týden na další</button>
+        <button class="btn btn--ghost btn--sm" id="mySettings">Moje nastavení</button>
+    </div>
+    <div id="banner"></div>
+    <div class="week" id="week"><div class="loader"><div class="spinner"></div>Načítám…</div></div>
+</div>
+
+<div class="modal-backdrop" id="modal">
+    <div class="modal">
+        <button class="modal__close" id="modalClose" aria-label="Zavřít">×</button>
+        <div id="modalBody"></div>
+    </div>
+</div>
+
+<script type="module">
+import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
+import {
+    DEMO, DEMO_ADMIN, STUDIO_LABELS, TYPE_LABELS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
+    pragueToDate, dateKey, timeKey, mondayKey, addDaysKey,
+    DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS, demoAvailability, demoBookings, demoBusy, akce, overridesFormHtml, readOverrides,
+} from './rezervace-common.js';
+
+const { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, writeBatch, Timestamp, serverTimestamp } =
+    await import(`${CDN}/firebase-firestore.js`);
+
+let db = null;
+let me = null;          // slug přihlášeného
+let isAdmin = false;
+let users = {};
+let config = { studios: {} };
+let services = [];
+let designerSlug = null;
+let weekKey = mondayKey(new Date());
+let blocks = [], bookings = [], busy = [];
+
+const $ = (id) => document.getElementById(id);
+
+async function init() {
+    if (DEMO) {
+        me = 'demo'; isAdmin = DEMO_ADMIN; users = DEMO_USERS; services = DEMO_SERVICES;
+        $('userName').textContent = 'Demo mód';
+    } else {
+        const session = await requireAuth('/login.html');
+        if (!session) return;
+        me = session.slug;
+        isAdmin = ['hr', 'admin'].includes(session.profile?.platformRole);
+        $('userName').textContent = session.profile?.name ?? session.user.email;
+        $('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+        ({ db } = await initFirebase());
+        const [usersSnap, cfgSnap, sSnap] = await Promise.all([getDocs(collection(db, 'users')), getDoc(doc(db, 'config', 'rezervace')), getDocs(collection(db, 'res_services'))]);
+        users = Object.fromEntries(usersSnap.docs.map(d => [d.id, d.data()]));
+        if (cfgSnap.exists()) config = cfgSnap.data();
+        services = sSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => x.active !== false).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+    }
+    if (DEMO) document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
+    if (isAdmin) $('navSettings').classList.remove('hidden');
+
+    const params = new URLSearchParams(location.search);
+    designerSlug = (isAdmin && params.get('designer')) || me;
+    if (isAdmin) {
+        const sel = $('designerSelect');
+        const list = Object.entries(users).filter(([, u]) => u.reservations?.enabled || u.department === 'sales')
+            .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'cs'));
+        if (!list.some(([s]) => s === me)) list.unshift([me, users[me] || { name: me }]);
+        sel.innerHTML = list.map(([s, u]) => `<option value="${s}">${escapeHtml(u.name || s)}${u.reservations?.enabled ? '' : ' (nepovolen)'}</option>`).join('');
+        sel.value = designerSlug;
+        sel.classList.remove('hidden');
+        sel.addEventListener('change', () => { designerSlug = sel.value; $('mySettings').classList.toggle('hidden', designerSlug !== me); load(); });
+    }
+
+    $('prevWeek').addEventListener('click', () => { weekKey = addDaysKey(weekKey, -7); load(); });
+    $('nextWeek').addEventListener('click', () => { weekKey = addDaysKey(weekKey, 7); load(); });
+    $('thisWeek').addEventListener('click', () => { weekKey = mondayKey(new Date()); load(); });
+    $('copyWeek').addEventListener('click', copyWeek);
+    $('mySettings').addEventListener('click', openMySettings);
+    $('modalClose').addEventListener('click', closeModal);
+    $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+    await load();
+}
+
+const weekStart = () => pragueToDate(weekKey);
+const weekEnd = () => pragueToDate(addDaysKey(weekKey, 7));
+
+async function load() {
+    const from = weekStart(), to = weekEnd();
+    if (DEMO) {
+        blocks = demoAvailability().filter(b => b.designerSlug === designerSlug && b.start >= from && b.start < to);
+        bookings = demoBookings().filter(b => b.designerSlug === designerSlug && b.start >= from && b.start < to);
+        busy = (demoBusy()[designerSlug] || []).filter(b => b.start >= from && b.start < to);
+    } else {
+        const range = (col) => query(collection(db, col), where('start', '>=', Timestamp.fromDate(from)), where('start', '<', Timestamp.fromDate(to)));
+        const [aSnap, bSnap, busySnap] = await Promise.all([getDocs(range('res_availability')), getDocs(range('res_bookings')), getDoc(doc(db, 'res_busy', designerSlug))]);
+        blocks = aSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => b.designerSlug === designerSlug);
+        bookings = bSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => b.designerSlug === designerSlug && b.status !== 'cancelled');
+        busy = (busySnap.exists() ? busySnap.data().intervals || [] : []).filter(i => toDate(i.start) < to && toDate(i.end) > from);
+    }
+    // Stálá směna (vždy ve studiu): dopočítat z otevírací doby, nevypisuje se.
+    const perm = users[designerSlug]?.reservations?.permanentShift;
+    if (perm) {
+        for (let i = 0; i < 7; i++) {
+            const key = addDaysKey(weekKey, i);
+            const h = openingOn(perm, key).h;
+            if (h) blocks.push({ id: `stala-${key}`, permanent: true, kind: 'shift', studio: perm, designerSlug, start: pragueToDate(key, h[0]), end: pragueToDate(key, h[1]) });
+        }
+    }
+    render();
+}
+
+function render() {
+    const end = addDaysKey(weekKey, 6);
+    $('weekLabel').textContent = `${fmtDay(pragueToDate(weekKey))} – ${fmtDay(pragueToDate(end))}`;
+    const u = users[designerSlug] || {};
+    const r = u.reservations || {};
+    const banner = [];
+    if (!r.enabled) banner.push(`<div class="banner banner--warn">${escapeHtml(u.name || designerSlug)} zatím nemá povolené rezervace — bloky se klientům nenabídnou, dokud to admin nezapne v Nastavení.</div>`);
+    if (r.permanentShift) banner.push(`<div class="banner banner--info">Stálá směna ve studiu ${escapeHtml(STUDIO_LABELS[r.permanentShift])} — podle otevírací doby, nic vypisovat nemusíš.</div>`);
+    if (r.enabled && !r.raynetUserId) banner.push('<div class="banner banner--info">Chybí Raynet ID — rezervace se do tvého kalendáře v Raynetu nepropíšou a obsazenost z Raynetu se nenačte.</div>');
+    $('banner').innerHTML = banner.join('');
+
+    const today = dateKey(new Date());
+    const items = [
+        ...blocks.map(b => ({ kind: 'block', start: toDate(b.start), end: toDate(b.end), data: b })),
+        ...bookings.map(b => ({ kind: 'booking', start: toDate(b.start), end: toDate(b.end), data: b })),
+        ...busy.map(b => ({ kind: 'busy', start: toDate(b.start), end: toDate(b.end), data: b })),
+    ];
+    let html = '';
+    for (let i = 0; i < 7; i++) {
+        const key = addDaysKey(weekKey, i);
+        const dayItems = items.filter(it => dateKey(it.start) === key).sort((a, b) => a.start - b.start);
+        html += `<div class="day ${key === today ? 'day--today' : ''}">
+            <div class="day__head"><span>${escapeHtml(fmtDay(pragueToDate(key)))}</span>
+            <button class="day__add" data-add="${key}" title="Přidat blok dostupnosti">+</button></div>
+            ${dayItems.map(itemHtml).join('') || '<span class="hint">—</span>'}
+        </div>`;
+    }
+    $('week').innerHTML = html;
+    $('week').querySelectorAll('[data-add]').forEach(b => b.addEventListener('click', () => openBlock(null, b.dataset.add)));
+    $('week').querySelectorAll('[data-block]').forEach(b => b.addEventListener('click', () => openBlock(blocks.find(x => x.id === b.dataset.block))));
+}
+
+// Typy bloků: 'flex' = volno (studio a/nebo doma), 'shift' = směna ve studiu.
+// Staré bloky s jedním serviceType se čtou jako volno.
+const blockTypes = (b) => b.kind === 'shift' ? ['studio'] : (b.serviceTypes || (b.serviceType ? [b.serviceType] : []));
+const SERVICE_SHORT = { studio: 'studio', home: 'návrh doma' };
+
+function itemHtml(it) {
+    const time = `${fmtTime(it.start)}–${fmtTime(it.end)}`;
+    if (it.kind === 'block') {
+        const b = it.data;
+        if (b.kind === 'shift') {
+            return `<div class="item item--shift" ${b.permanent ? '' : `data-block="${b.id}"`}>${time}<small>Směna · studio ${escapeHtml(STUDIO_LABELS[b.studio] || b.studio)}${b.permanent ? ' (stálá)' : ''}</small></div>`;
+        }
+        const types = blockTypes(b);
+        const label = types.map(t => t === 'studio' ? `studio ${STUDIO_LABELS[b.studio] || b.studio}` : SERVICE_SHORT.home).join(' + ');
+        const cls = types.length > 1 ? 'both' : types[0];
+        return `<div class="item item--${cls}" data-block="${b.id}">${time}<small>Na schůzky · ${escapeHtml(label)}</small></div>`;
+    }
+    if (it.kind === 'booking') {
+        const b = it.data;
+        return `<div class="item item--booking ${b.status}">${time} ${escapeHtml(b.client?.name || '')}
+            <small>${escapeHtml(b.serviceName || '')} · ${escapeHtml(STATUS_LABELS[b.status] || b.status)}</small></div>`;
+    }
+    return `<div class="item item--busy">${time}<small>Obsazeno (Raynet)</small></div>`;
+}
+
+// ── přidání / úprava bloku ──
+
+function openingOn(studio, dayKey) {
+    const hours = config.studios?.[studio]?.openingHours || {};
+    const dow = String((new Date(`${dayKey}T12:00:00Z`).getUTCDay() + 6) % 7 + 1); // 1 = pondělí
+    return { set: Object.keys(hours).length > 0, h: hours[dow] || null };
+}
+
+function openingWarning(usesStudio, studio, dayKey, from, to) {
+    if (!usesStudio) return '';
+    const { set, h } = openingOn(studio, dayKey);
+    if (!set) return '';
+    if (!h) return `Studio ${STUDIO_LABELS[studio]} má v tento den zavřeno.`;
+    if (from < h[0] || to > h[1]) return `Blok je mimo otevírací dobu studia (${h[0]}–${h[1]}).`;
+    return '';
+}
+
+// Do 30 minut od založení jde blok opravit/smazat (překlep). Pak už jen admin —
+// dostupnost se nezrušuje, kdo nemůže přijít, volá Matoušovi.
+const GRACE_MS = 30 * 60000;
+const canEdit = (b) => isAdmin || (b.createdAt && Date.now() - toDate(b.createdAt).getTime() < GRACE_MS);
+
+function openBlock(block, dayKeyArg) {
+    if (block && !canEdit(block)) {
+        $('modalBody').innerHTML = `<h2>Blok dostupnosti</h2>
+            <p class="hint">${escapeHtml(fmtDay(toDate(block.start)))} · ${fmtTime(block.start)}–${fmtTime(block.end)}</p>
+            <div class="banner banner--info" style="margin-top:14px">Vypsanou dostupnost už měnit nejde. Pokud nemůžeš přijít, zavolej Matoušovi — upraví ji.</div>`;
+        $('modal').classList.add('open');
+        return;
+    }
+    const r = users[designerSlug]?.reservations || {};
+    const studios = (r.studios?.length ? r.studios : Object.keys(STUDIO_LABELS));
+    const day = block ? dateKey(toDate(block.start)) : dayKeyArg;
+    const kind = block?.kind || 'flex';
+    const types = block ? blockTypes(block) : ['studio', 'home'];
+    const studioSel = block?.studio || studios[0];
+    const firstOpen = openingOn(studioSel, day).h;
+    $('modalBody').innerHTML = `
+        <h2>${block ? 'Upravit blok' : 'Kdy jsem k dispozici'}</h2>
+        <p class="hint">${escapeHtml(users[designerSlug]?.name || designerSlug)} · ${escapeHtml(fmtDay(pragueToDate(day)))}</p>
+        <div class="choice-row" style="margin-top:14px">
+            <label class="choice-opt"><input type="radio" name="fKind" value="flex" ${kind === 'flex' ? 'checked' : ''}>
+                <span><strong>Na schůzky</strong><small>Klienti si mě můžou zarezervovat — ve studiu, u nich doma, nebo obojí.</small></span></label>
+            <label class="choice-opt"><input type="radio" name="fKind" value="shift" ${kind === 'shift' ? 'checked' : ''}>
+                <span><strong>Směna ve studiu</strong><small>Držím studio otevřené. Klienti si mě můžou zarezervovat na konzultaci.</small></span></label>
+        </div>
+        <div class="form-group" id="fTypesWrap"><label>Na co</label>
+            <div class="check-list">
+                <label><input type="checkbox" id="fStudioT" ${types.includes('studio') ? 'checked' : ''}> Konzultace ve studiu</label>
+                <label><input type="checkbox" id="fHomeT" ${types.includes('home') ? 'checked' : ''}> Návrh u klienta doma</label>
+            </div></div>
+        <div class="form-group" id="fStudioWrap"><label>Studio</label>
+            <select id="fStudio">${studios.map(s => `<option value="${s}" ${s === studioSel ? 'selected' : ''}>${STUDIO_LABELS[s]}</option>`).join('')}</select></div>
+        <div class="row2">
+            <div class="form-group"><label>Od</label><input type="time" id="fFrom" step="1800" value="${block ? timeKey(toDate(block.start)) : (kind === 'shift' && firstOpen ? firstOpen[0] : '09:00')}"></div>
+            <div class="form-group"><label>Do</label><input type="time" id="fTo" step="1800" value="${block ? timeKey(toDate(block.end)) : (kind === 'shift' && firstOpen ? firstOpen[1] : '13:00')}"></div>
+        </div>
+        <p class="hint hint--warn" id="fWarn"></p>
+        ${block ? '' : '<p class="hint">Vypsanou dostupnost půjde 30 minut opravit, pak už ji měnit nejde.</p>'}
+        <p class="form-error" id="fErr"></p>
+        <div class="btn-row">
+            <button class="btn btn--primary" id="fSave">Uložit</button>
+            ${block ? '<button class="btn btn--danger" id="fDelete">Smazat blok</button>' : ''}
+        </div>`;
+    const kindNow = () => document.querySelector('input[name="fKind"]:checked').value;
+    const refresh = (kindChanged) => {
+        const k = kindNow();
+        $('fTypesWrap').classList.toggle('hidden', k === 'shift');
+        const usesStudio = k === 'shift' || $('fStudioT').checked;
+        $('fStudioWrap').classList.toggle('hidden', !usesStudio);
+        // Směna = otevírací doba studia (předvyplnit, jde upravit).
+        if (kindChanged && k === 'shift') {
+            const h = openingOn($('fStudio').value, day).h;
+            if (h) { $('fFrom').value = h[0]; $('fTo').value = h[1]; }
+        }
+        $('fWarn').textContent = openingWarning(usesStudio, $('fStudio').value, day, $('fFrom').value, $('fTo').value);
+    };
+    document.querySelectorAll('input[name="fKind"]').forEach(el => el.addEventListener('change', () => refresh(true)));
+    ['fStudioT', 'fHomeT', 'fFrom', 'fTo'].forEach(id => $(id).addEventListener('change', () => refresh(false)));
+    $('fStudio').addEventListener('change', () => refresh(kindNow() === 'shift'));
+    refresh(false);
+    $('fSave').addEventListener('click', () => saveBlock(block, day, kindNow()));
+    if (block) $('fDelete').addEventListener('click', () => deleteBlock(block));
+    $('modal').classList.add('open');
+}
+
+async function saveBlock(block, day, kind) {
+    const from = $('fFrom').value, to = $('fTo').value;
+    if (!from || !to || from >= to) { $('fErr').textContent = 'Konec musí být po začátku.'; return; }
+    const serviceTypes = kind === 'shift' ? ['studio'] : [$('fStudioT').checked && 'studio', $('fHomeT').checked && 'home'].filter(Boolean);
+    if (!serviceTypes.length) { $('fErr').textContent = 'Vyber, na co jsi k dispozici.'; return; }
+    const data = {
+        designerSlug, kind, serviceTypes,
+        studio: serviceTypes.includes('studio') ? $('fStudio').value : null,
+        start: pragueToDate(day, from), end: pragueToDate(day, to),
+    };
+    const overlap = blocks.some(b => b.id !== block?.id && !b.permanent && toDate(b.start) < data.end && toDate(b.end) > data.start);
+    if (overlap) { $('fErr').textContent = 'Překrývá se s jiným tvým blokem.'; return; }
+    if (DEMO) { showToast('Demo: blok by se uložil'); closeModal(); return; }
+    try {
+        const payload = { ...data, start: Timestamp.fromDate(data.start), end: Timestamp.fromDate(data.end) };
+        if (block) await updateDoc(doc(db, 'res_availability', block.id), payload);
+        else await addDoc(collection(db, 'res_availability'), { ...payload, createdBy: me, createdAt: serverTimestamp() });
+        showToast('Uloženo', 'success');
+        closeModal();
+        load();
+    } catch (err) {
+        console.error(err);
+        $('fErr').textContent = block ? 'Uložit se nepodařilo — blok už nejde měnit (po 30 minutách jen admin).' : 'Uložit se nepodařilo (oprávnění?).';
+    }
+}
+
+async function deleteBlock(block) {
+    if (!confirm('Smazat tento blok? Už domluvené rezervace zůstávají.')) return;
+    if (DEMO) { showToast('Demo: blok by se smazal'); closeModal(); return; }
+    try {
+        await deleteDoc(doc(db, 'res_availability', block.id));
+        closeModal();
+        load();
+    } catch (err) {
+        console.error(err);
+        $('fErr').textContent = 'Smazat nejde — po 30 minutách už jen admin.';
+    }
+}
+
+// "Zkopírovat týden" místo opakovacích pravidel (spec kap. 4): bloky tohoto
+// týdne → stejné dny a časy příští týden, existující překrývající se přeskočí.
+async function copyWeek() {
+    const own = blocks.filter(b => !b.permanent);
+    if (!own.length) { showToast('Tento týden nemá žádné bloky.'); return; }
+    const nextKey = addDaysKey(weekKey, 7);
+    if (!confirm(`Zkopírovat ${own.length} bloků na týden od ${fmtDay(pragueToDate(nextKey))}?`)) return;
+    if (DEMO) { showToast('Demo: bloky by se zkopírovaly'); return; }
+    const from = pragueToDate(nextKey), to = pragueToDate(addDaysKey(nextKey, 7));
+    const existing = (await getDocs(query(collection(db, 'res_availability'), where('start', '>=', Timestamp.fromDate(from)), where('start', '<', Timestamp.fromDate(to)))))
+        .docs.map(d => d.data()).filter(b => b.designerSlug === designerSlug);
+    const batch = writeBatch(db);
+    let n = 0;
+    for (const b of own) {
+        // Přes pražský čas, ať blok sedí i přes přechod letního/zimního času.
+        const day = addDaysKey(dateKey(toDate(b.start)), 7);
+        const start = pragueToDate(day, timeKey(toDate(b.start)));
+        const end = pragueToDate(day, timeKey(toDate(b.end)));
+        if (existing.some(e => toDate(e.start) < end && toDate(e.end) > start)) continue;
+        batch.set(doc(collection(db, 'res_availability')), {
+            designerSlug, kind: b.kind || 'flex', serviceTypes: blockTypes(b), studio: b.studio || null,
+            start: Timestamp.fromDate(start), end: Timestamp.fromDate(end), createdBy: me, createdAt: serverTimestamp(),
+        });
+        n++;
+    }
+    await batch.commit();
+    showToast(n ? `Zkopírováno ${n} bloků` : 'Příští týden už bloky má', 'success');
+    weekKey = nextKey;
+    load();
+}
+
+// ── moje nastavení ──
+// Kde a co dělám + veřejný profil si designér nastaví sám (akce mojeNastaveni).
+// Zapnutí rezervací, Raynet ID, stálou směnu a správu všech rezervací mění admin.
+
+function openMySettings() {
+    const u = users[me] || {};
+    const r = u.reservations || {};
+    const regions = config.homeRegions?.length ? config.homeRegions : DEFAULT_HOME_REGIONS;
+    const myRegions = Array.isArray(r.homeRegions) ? r.homeRegions : (r.studios || []);
+    const check = (attr, val, on, label) => `<label><input type="checkbox" ${attr}="${val}" ${on ? 'checked' : ''}> ${escapeHtml(label)}</label>`;
+    $('modalBody').innerHTML = `
+        <h2>Moje nastavení</h2>
+        <p class="hint">${escapeHtml(u.name || me)}</p>
+        <h3>Co dělám</h3>
+        <div class="check-list">${services.map(sv => check('data-ms-service', sv.id, (r.services || []).includes(sv.id), sv.name)).join('')}</div>
+        <h3>Konzultace ve studiu</h3>
+        <div class="check-list">${Object.entries(STUDIO_LABELS).map(([k, v]) => check('data-ms-studio', k, (r.studios || []).includes(k), v)).join('')}</div>
+        <h3>Návrh doma — kam jezdím</h3>
+        <div class="check-list">${regions.map(x => check('data-ms-region', x.id, myRegions.includes(x.id), x.name)).join('')}</div>
+        <h3>Můj profil pro klienty</h3>
+        <div class="form-group"><label>Pozice na webu</label><input id="msPosition" type="text" maxlength="100" placeholder="${escapeHtml(u.position || 'např. Designérka koupelen')}" value="${escapeHtml(r.publicPosition || '')}"></div>
+        <div class="form-group"><label>Krátké představení</label><textarea id="msBio" rows="2" maxlength="400" placeholder="Na co se specializuješ — uvidí to klienti při výběru designéra.">${escapeHtml(r.bio || '')}</textarea></div>
+        <div class="form-group"><label>Fotka (https:// odkaz)</label><input id="msPhoto" type="url" value="${escapeHtml(r.photoUrl || '')}"></div>
+        <h3>Moje parametry schůzek</h3>
+        <div id="msOverrides">${overridesFormHtml(services.filter(sv => (r.services || []).includes(sv.id)), r.overrides, r.travelMin, config.travelMin ?? 60)}</div>
+        <h3>Nastavuje admin</h3>
+        <dl class="info-grid">
+            <dt>Rezervace</dt><dd>${r.enabled ? 'zapnuté — klienti tě vidí' : 'vypnuté — klienti tě zatím nevidí'}</dd>
+            <dt>Stálá směna</dt><dd>${r.permanentShift ? `studio ${escapeHtml(STUDIO_LABELS[r.permanentShift])}` : 'ne'}</dd>
+            <dt>Raynet</dt><dd>${r.raynetUserId ? 'propojeno' : 'chybí Raynet ID'}</dd>
+            <dt>Všechny rezervace</dt><dd>${r.manageAll ? 'spravuješ' : 'jen svoje'}</dd>
+        </dl>
+        <p class="form-error" id="msErr"></p>
+        <div class="btn-row"><button class="btn btn--primary" id="msSave">Uložit</button></div>`;
+    $('msSave').addEventListener('click', saveMySettings);
+    $('modal').classList.add('open');
+}
+
+async function saveMySettings() {
+    const vals = (attr) => [...document.querySelectorAll(`[${attr}]:checked`)].map(e => e.getAttribute(attr));
+    const reservations = {
+        services: vals('data-ms-service'), studios: vals('data-ms-studio'), homeRegions: vals('data-ms-region'),
+        publicPosition: $('msPosition').value.trim(), bio: $('msBio').value.trim(), photoUrl: $('msPhoto').value.trim(),
+        ...readOverrides($('msOverrides')),
+    };
+    $('msSave').disabled = true;
+    try {
+        const res = await akce('mojeNastaveni', { reservations });
+        if (!DEMO) users[me] = { ...users[me], reservations: res.reservations };
+        showToast(DEMO ? 'Demo: uloženo by bylo' : 'Uloženo', 'success');
+        closeModal();
+        render();
+    } catch (err) {
+        $('msErr').textContent = err.message || 'Uložit se nepodařilo.';
+        $('msSave').disabled = false;
+    }
+}
+
+function closeModal() { $('modal').classList.remove('open'); }
+
+init().catch(err => {
+    console.error(err);
+    $('week').innerHTML = '<div class="empty-state">Kalendář se nepodařilo načíst.</div>';
+});
+</script>
+</body>
+</html>

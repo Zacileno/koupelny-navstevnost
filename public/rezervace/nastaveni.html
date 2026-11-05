@@ -59,7 +59,7 @@
 
 <script type="module">
 import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
-import { DEMO, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS } from './rezervace-common.js';
+import { DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS } from './rezervace-common.js';
 
 const { collection, getDocs, getDoc, doc, setDoc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
 
@@ -73,6 +73,8 @@ const $ = (id) => document.getElementById(id);
 
 async function init() {
     if (DEMO) {
+        // Nastavení je jen pro admina — designér sem nemá přístup ani v demu.
+        if (!DEMO_ADMIN) { location.href = 'kalendar.html?demo=1&role=designer'; return; }
         users = DEMO_USERS; services = DEMO_SERVICES;
         $('userName').textContent = 'Demo mód';
         document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));

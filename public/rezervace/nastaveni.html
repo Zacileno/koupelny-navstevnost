@@ -35,7 +35,7 @@
     <div id="banner"></div>
 
     <div class="section-h">Služby</div>
-    <p class="hint" style="margin-bottom:8px">Hodnoty se projeví hned. Předstih = nejdřív kolik hodin od teď jde rezervovat (návrh doma 48 = 2 dny).</p>
+    <p class="hint" style="margin-bottom:8px">Hodnoty se projeví hned. Předstih = nejdřív kolik hodin od teď jde rezervovat (návrh doma 48 = 2 dny). Max. dní dopředu = jak daleko do budoucna klient termíny vidí.</p>
     <div class="card table-wrap"><table class="tbl" id="servicesTbl"></table></div>
 
     <div class="section-h">Designéři</div>
@@ -94,7 +94,7 @@ async function init() {
 
 const SERVICE_COLS = [
     ['name', 'Název', 'text'], ['durationMin', 'Délka (min)', 'number'], ['minLeadHours', 'Předstih (hodiny)', 'number'],
-    ['horizonDays', 'Horizont (dny)', 'number'],
+    ['horizonDays', 'Max. dní dopředu', 'number'],
     ['bufferMin', 'Rozestup (min)', 'number'], ['priceText', 'Cena (text)', 'text'], ['requiresConfirmation', 'Potvrzuje CX', 'bool'], ['active', 'Aktivní', 'bool'],
 ];
 

@@ -40,3 +40,11 @@ test("studio bez otevírací doby nemá co hlídat", () => {
   const days = studioCoverage("praha", { openingHours: {} }, [], P(2026, 11, 16, 0), P(2026, 11, 18, 0));
   assert.ok(days.every((d) => d.open === null && d.covered));
 });
+
+test("pokrytí počítá i se směnami uloženými jako Firestore Timestamp", () => {
+  const ts = (d) => ({ toMillis: () => d.getTime() });
+  const shifts = [{ kind: "shift", studio: "praha", designerSlug: "a", start: ts(P(2026, 11, 16, 9)), end: ts(P(2026, 11, 16, 18)) }];
+  const days = studioCoverage("praha", STUDIO, shifts, P(2026, 11, 16, 0), P(2026, 11, 17, 0));
+  assert.equal(days[0].covered, true);
+  assert.deepEqual(days[0].staff, ["a"]);
+});

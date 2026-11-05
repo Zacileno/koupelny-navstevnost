@@ -8,6 +8,9 @@
 
 const { pragueParts, fromPrague, nextDay, isHoliday, dayOfWeek } = require("../shared/cas");
 
+// Čas z Firestore Timestamp, Date i ISO řetězce → ms.
+const ms = (v) => (v?.toMillis ? v.toMillis() : new Date(v).getTime());
+
 const toMin = (hhmm) => {
   const [h, m] = String(hhmm).split(":").map(Number);
   return h * 60 + (m || 0);
@@ -66,7 +69,7 @@ function studioCoverage(studioKey, studioCfg, shifts, from, to) {
     }
     const mine = shifts
       .filter((s) => s.kind === "shift" && s.studio === studioKey)
-      .map((s) => [new Date(s.start).getTime(), new Date(s.end).getTime(), s.designerSlug])
+      .map((s) => [ms(s.start), ms(s.end), s.designerSlug])
       .filter(([s, e]) => s < open[1] && e > open[0])
       .sort((a, b) => a[0] - b[0]);
     const gaps = [];

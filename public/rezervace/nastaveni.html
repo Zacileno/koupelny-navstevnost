@@ -34,6 +34,7 @@
 <div class="page-wrap">
     <nav class="subnav">
         <a href="kalendar.html" data-keep>Můj kalendář</a>
+        <a href="studio.html" data-keep>Kalendář studia</a>
         <a href="prehled.html" data-keep>Přehled rezervací</a>
         <a href="nastaveni.html" class="active" data-keep>Nastavení</a>
     </nav>
@@ -160,7 +161,8 @@ async function saveService(tr) {
 
 function renderDesigners() {
     const list = Object.entries(users)
-        .filter(([, u]) => u.active !== false && !u.external && (u.reservations || ['sales', 'realization'].includes(u.department)))
+        // Všichni aktivní (ne externí) — i ne-designéři kvůli „Spravuje všechny rezervace“ (CX).
+        .filter(([, u]) => u.active !== false && !u.external)
         .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'cs'));
     $('designersTbl').innerHTML = `<tr><th>Člověk</th><th>Rezervace</th><th>Studia (konzultace)</th><th>Oblasti (návrh doma)</th><th>Služby</th><th>Raynet ID</th><th></th></tr>` +
         list.map(([slug, u]) => {
@@ -182,6 +184,11 @@ function renderDesigners() {
                     <input type="text" data-f="photoUrl" placeholder="Fotka — https:// odkaz" value="${escapeHtml(r.photoUrl || '')}">
                 </div>
                 <input type="text" data-f="bio" style="margin-top:6px" maxlength="400" placeholder="Krátké představení pro klienty (na co se specializuje)" value="${escapeHtml(r.bio || '')}">
+                <div class="check-list" style="margin-top:6px">
+                    <label>Stálá směna (vždy ve studiu dle otevírací doby):
+                        <select data-f="permanentShift" style="margin-left:4px"><option value="">ne</option>${Object.entries(STUDIO_LABELS).map(([k, v]) => `<option value="${k}" ${r.permanentShift === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+                    <label><input type="checkbox" data-manage-all ${r.manageAll ? 'checked' : ''}> Spravuje všechny rezervace (CX, vedení)</label>
+                </div>
                 <span class="hint">Přímý odkaz: <code>/rezervovat/?designer=${escapeHtml(slug)}</code></span>
             </td></tr>`;
         }).join('');
@@ -201,6 +208,8 @@ async function saveDesigner(btn) {
         publicPosition: f('publicPosition'),
         photoUrl: f('photoUrl'),
         bio: f('bio'),
+        permanentShift: profile.querySelector('[data-f="permanentShift"]').value || null,
+        manageAll: profile.querySelector('[data-manage-all]').checked,
     };
     btn.disabled = true;
     try {
@@ -222,7 +231,9 @@ function renderStudios() {
         const h = s.openingHours || {};
         return `<div data-studio-box="${k}" style="margin-bottom:16px">
             <div class="row2"><div class="form-group"><label>${label} — název</label><input data-f="name" value="${escapeHtml(s.name || label)}"></div>
-            <div class="form-group"><label>Adresa</label><input data-f="address" value="${escapeHtml(s.address || '')}"></div></div>
+            <div class="form-group"><label>Ulice a č. p. <span class="info" tabindex="0" data-tip="Adresa studia jde ke klientovi v Raynetu (kvůli středisku v Pohodě) a ukazuje se klientům ve formuláři.">i</span></label><input data-f="street" value="${escapeHtml(s.street || '')}"></div></div>
+            <div class="row2"><div class="form-group"><label>Město</label><input data-f="city" value="${escapeHtml(s.city || '')}"></div>
+            <div class="form-group"><label>PSČ</label><input data-f="zipCode" value="${escapeHtml(s.zipCode || '')}"></div></div>
             <div class="hours"><span></span>${DAYS.map(d => `<span class="hd">${d}</span>`).join('')}
             <span class="hint">Otevírací doba</span>${DAYS.map((d, i) => {
                 const v = h[String(i + 1)];
@@ -243,6 +254,10 @@ function renderGeneral() {
             <div class="form-group"><label>Odkaz na zásady osobních údajů (veřejný formulář)</label><input id="gPrivacy" type="url" value="${escapeHtml(config.privacyUrl || '')}"></div>
             <div class="form-group"><label>Max. aktivních rezervací na 1 telefon (web)</label><input id="gMaxPhone" type="number" min="0" value="${config.maxActivePerPhone ?? 3}"></div>
         </div>
+        <div class="row2">
+            <div class="form-group"><label>Infolinka (zobrazí se klientům) <span class="info" tabindex="0" data-tip="Jedno číslo pro klienty, kteří nenajdou termín nebo chtějí raději volat. Ukazuje se na rezervační stránce.">i</span></label><input id="gInfoline" type="tel" value="${escapeHtml(config.infolinePhone || '')}" placeholder="+420 …"></div>
+            <div class="form-group"><label>Čas na přesun u návrhu doma (min) <span class="info" tabindex="0" data-tip="Kolik minut musí zůstat volných před a po návrhu u klienta doma (cesta). Mezi dvěma konzultacemi ve studiu se nepočítá.">i</span></label><input id="gTravel" type="number" min="0" step="15" value="${config.travelMin ?? 60}"></div>
+        </div>
         <div class="check-list" style="margin-bottom:14px">
             <label><input type="checkbox" id="gHolidays" ${config.blockHolidays !== false ? 'checked' : ''}> Ve státní svátek nic nenabízet</label>
         </div>
@@ -257,7 +272,9 @@ function renderGeneral() {
         <div class="check-list">
             <label><input type="checkbox" id="rBusyEvent" ${r.busyEntities.includes('event') ? 'checked' : ''}> Obsazenost z Událostí</label>
             <label><input type="checkbox" id="rBusyMeeting" ${r.busyEntities.includes('meeting') ? 'checked' : ''}> Obsazenost ze Schůzek</label>
-            <label><input type="checkbox" id="rCreate" ${r.createContact ? 'checked' : ''}> Zakládat kontakt, když se nenajde</label>
+            <label><input type="checkbox" id="rCreate" ${r.createContact ? 'checked' : ''}> Zakládat klienta, když se nenajde</label>
+            <label><input type="checkbox" id="rOp" ${r.createBusinessCase !== false ? 'checked' : ''}> Každá schůzka = obchodní případ</label>
+            <label>Kategorie OP (ID v Raynetu): <input type="text" inputmode="numeric" id="rOpCat" value="${escapeHtml(r.businessCaseCategory ?? '')}" style="width:80px;margin-left:4px"></label>
             <label><input type="checkbox" id="rLive" ${r.liveCheck ? 'checked' : ''}> Živá kontrola Raynetu před zápisem</label>
         </div>`;
 }
@@ -281,7 +298,9 @@ async function saveConfig() {
             inp.style.borderColor = '';
             openingHours[inp.dataset.day] = h;
         });
-        studios[box.dataset.studioBox] = { name: box.querySelector('[data-f="name"]').value.trim(), address: box.querySelector('[data-f="address"]').value.trim(), openingHours };
+        const f = (k) => box.querySelector(`[data-f="${k}"]`).value.trim();
+        const street = f('street'), city = f('city'), zipCode = f('zipCode');
+        studios[box.dataset.studioBox] = { name: f('name'), street, city, zipCode, address: [street, [zipCode, city].filter(Boolean).join(' ')].filter(Boolean).join(', '), openingHours };
     });
     if (bad) { showToast('Opravte otevírací dobu (formát 09:00-18:00)', 'error'); return; }
     const busyEntities = [$('rBusyEvent').checked && 'event', $('rBusyMeeting').checked && 'meeting'].filter(Boolean);
@@ -291,8 +310,14 @@ async function saveConfig() {
         alertRecipients: $('gAlert').value.split(',').map(s => s.trim()).filter(Boolean),
         privacyUrl: $('gPrivacy').value.trim(),
         maxActivePerPhone: Math.max(0, Number($('gMaxPhone').value) || 0),
+        infolinePhone: $('gInfoline').value.trim(),
+        travelMin: Math.max(0, Number($('gTravel').value) || 0),
         blockHolidays: $('gHolidays').checked,
-        raynet: { busyEntities, writeEntity: $('rWrite').value, cancelMode: $('rCancel').value, createContact: $('rCreate').checked, liveCheck: $('rLive').checked },
+        raynet: {
+            ...(config.raynet || {}), busyEntities, writeEntity: $('rWrite').value, cancelMode: $('rCancel').value,
+            createContact: $('rCreate').checked, liveCheck: $('rLive').checked,
+            createBusinessCase: $('rOp').checked, businessCaseCategory: Number($('rOpCat').value) || null,
+        },
         updatedAt: DEMO ? null : Timestamp.now(),
     };
     if (DEMO) { showToast('Demo: nastavení by se uložilo'); return; }

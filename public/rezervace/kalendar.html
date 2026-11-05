@@ -22,11 +22,12 @@
 <div class="page-wrap">
     <nav class="subnav">
         <a href="kalendar.html" class="active" data-keep>Můj kalendář</a>
+        <a href="studio.html" data-keep>Kalendář studia</a>
         <a href="prehled.html" data-keep>Přehled rezervací</a>
         <a href="nastaveni.html" data-keep id="navSettings" class="hidden">Nastavení</a>
     </nav>
 
-    <p class="hint" style="margin-bottom:12px">V appce si vypisuješ, kdy můžeš. Schůzky plánuješ, kde jsi zvyklý — šedě je obsazenost z Raynetu.</p>
+    <p class="hint" style="margin-bottom:12px">V appce si vypisuješ, kdy můžeš: <strong>volno</strong> (schůzky ve studiu a/nebo u klienta) nebo <strong>směnu ve studiu</strong>. Kde nic nevypíšeš, tam tě klienti nevidí. Šedě je obsazenost z Raynetu.</p>
 
     <div class="toolbar">
         <button class="btn btn--ghost btn--sm" id="prevWeek">←</button>
@@ -56,7 +57,7 @@ import {
     DEMO_USERS, demoAvailability, demoBookings, demoBusy,
 } from './rezervace-common.js';
 
-const { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, writeBatch, Timestamp } =
+const { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, writeBatch, Timestamp, serverTimestamp } =
     await import(`${CDN}/firebase-firestore.js`);
 
 let db = null;
@@ -127,6 +128,15 @@ async function load() {
         bookings = bSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => b.designerSlug === designerSlug && b.status !== 'cancelled');
         busy = (busySnap.exists() ? busySnap.data().intervals || [] : []).filter(i => toDate(i.start) < to && toDate(i.end) > from);
     }
+    // Stálá směna (vždy ve studiu): dopočítat z otevírací doby, nevypisuje se.
+    const perm = users[designerSlug]?.reservations?.permanentShift;
+    if (perm) {
+        for (let i = 0; i < 7; i++) {
+            const key = addDaysKey(weekKey, i);
+            const h = openingOn(perm, key).h;
+            if (h) blocks.push({ id: `stala-${key}`, permanent: true, kind: 'shift', studio: perm, designerSlug, start: pragueToDate(key, h[0]), end: pragueToDate(key, h[1]) });
+        }
+    }
     render();
 }
 
@@ -137,7 +147,8 @@ function render() {
     const r = u.reservations || {};
     const banner = [];
     if (!r.enabled) banner.push(`<div class="banner banner--warn">${escapeHtml(u.name || designerSlug)} zatím nemá povolené rezervace — bloky se klientům nenabídnou, dokud to admin nezapne v Nastavení.</div>`);
-    else if (!r.raynetUserId) banner.push('<div class="banner banner--info">Chybí Raynet ID — rezervace se do tvého kalendáře v Raynetu nepropíšou a obsazenost z Raynetu se nenačte.</div>');
+    if (r.permanentShift) banner.push(`<div class="banner banner--info">Stálá směna ve studiu ${escapeHtml(STUDIO_LABELS[r.permanentShift])} — podle otevírací doby, nic vypisovat nemusíš.</div>`);
+    if (r.enabled && !r.raynetUserId) banner.push('<div class="banner banner--info">Chybí Raynet ID — rezervace se do tvého kalendáře v Raynetu nepropíšou a obsazenost z Raynetu se nenačte.</div>');
     $('banner').innerHTML = banner.join('');
 
     const today = dateKey(new Date());
@@ -161,12 +172,22 @@ function render() {
     $('week').querySelectorAll('[data-block]').forEach(b => b.addEventListener('click', () => openBlock(blocks.find(x => x.id === b.dataset.block))));
 }
 
+// Typy bloků: 'flex' = volno (studio a/nebo doma), 'shift' = směna ve studiu.
+// Staré bloky s jedním serviceType se čtou jako volno.
+const blockTypes = (b) => b.kind === 'shift' ? ['studio'] : (b.serviceTypes || (b.serviceType ? [b.serviceType] : []));
+const SERVICE_SHORT = { studio: 'studio', home: 'návrh doma' };
+
 function itemHtml(it) {
     const time = `${fmtTime(it.start)}–${fmtTime(it.end)}`;
     if (it.kind === 'block') {
         const b = it.data;
-        const label = b.serviceType === 'studio' ? `Studio ${STUDIO_LABELS[b.studio] || b.studio}` : 'Návrh doma';
-        return `<div class="item item--${b.serviceType}" data-block="${b.id}">${time}<small>${escapeHtml(label)}</small></div>`;
+        if (b.kind === 'shift') {
+            return `<div class="item item--shift" ${b.permanent ? '' : `data-block="${b.id}"`}>${time}<small>Směna · studio ${escapeHtml(STUDIO_LABELS[b.studio] || b.studio)}${b.permanent ? ' (stálá)' : ''}</small></div>`;
+        }
+        const types = blockTypes(b);
+        const label = types.map(t => t === 'studio' ? `studio ${STUDIO_LABELS[b.studio] || b.studio}` : SERVICE_SHORT.home).join(' + ');
+        const cls = types.length > 1 ? 'both' : types[0];
+        return `<div class="item item--${cls}" data-block="${b.id}">${time}<small>Volno · ${escapeHtml(label)}</small></div>`;
     }
     if (it.kind === 'booking') {
         const b = it.data;
@@ -178,105 +199,151 @@ function itemHtml(it) {
 
 // ── přidání / úprava bloku ──
 
-function openingWarning(serviceType, studio, dayKey, from, to) {
-    if (serviceType !== 'studio') return '';
+function openingOn(studio, dayKey) {
     const hours = config.studios?.[studio]?.openingHours || {};
     const dow = String((new Date(`${dayKey}T12:00:00Z`).getUTCDay() + 6) % 7 + 1); // 1 = pondělí
-    const h = hours[dow];
-    if (!Object.keys(hours).length) return '';
+    return { set: Object.keys(hours).length > 0, h: hours[dow] || null };
+}
+
+function openingWarning(usesStudio, studio, dayKey, from, to) {
+    if (!usesStudio) return '';
+    const { set, h } = openingOn(studio, dayKey);
+    if (!set) return '';
     if (!h) return `Studio ${STUDIO_LABELS[studio]} má v tento den zavřeno.`;
     if (from < h[0] || to > h[1]) return `Blok je mimo otevírací dobu studia (${h[0]}–${h[1]}).`;
     return '';
 }
 
+// Do 30 minut od založení jde blok opravit/smazat (překlep). Pak už jen admin —
+// dostupnost se nezrušuje, kdo nemůže přijít, volá Matoušovi.
+const GRACE_MS = 30 * 60000;
+const canEdit = (b) => isAdmin || (b.createdAt && Date.now() - toDate(b.createdAt).getTime() < GRACE_MS);
+
 function openBlock(block, dayKeyArg) {
+    if (block && !canEdit(block)) {
+        $('modalBody').innerHTML = `<h2>Blok dostupnosti</h2>
+            <p class="hint">${escapeHtml(fmtDay(toDate(block.start)))} · ${fmtTime(block.start)}–${fmtTime(block.end)}</p>
+            <div class="banner banner--info" style="margin-top:14px">Vypsanou dostupnost už měnit nejde. Pokud nemůžeš přijít, zavolej Matoušovi — upraví ji.</div>`;
+        $('modal').classList.add('open');
+        return;
+    }
     const r = users[designerSlug]?.reservations || {};
     const studios = (r.studios?.length ? r.studios : Object.keys(STUDIO_LABELS));
     const day = block ? dateKey(toDate(block.start)) : dayKeyArg;
-    const type = block?.serviceType || 'studio';
+    const kind = block?.kind || 'flex';
+    const types = block ? blockTypes(block) : ['studio', 'home'];
+    const studioSel = block?.studio || studios[0];
+    const firstOpen = openingOn(studioSel, day).h;
     $('modalBody').innerHTML = `
-        <h2>${block ? 'Upravit blok' : 'Nový blok dostupnosti'}</h2>
+        <h2>${block ? 'Upravit blok' : 'Kdy jsem k dispozici'}</h2>
         <p class="hint">${escapeHtml(users[designerSlug]?.name || designerSlug)} · ${escapeHtml(fmtDay(pragueToDate(day)))}</p>
-        <div class="form-group" style="margin-top:14px"><label>Služba</label>
-            <select id="fType">${Object.entries(TYPE_LABELS).map(([k, v]) => `<option value="${k}" ${k === type ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div class="choice-row" style="margin-top:14px">
+            <label class="choice-opt"><input type="radio" name="fKind" value="flex" ${kind === 'flex' ? 'checked' : ''}>
+                <span><strong>Volno</strong><small>Můžu na schůzky — ve studiu, u klienta, nebo obojí.</small></span></label>
+            <label class="choice-opt"><input type="radio" name="fKind" value="shift" ${kind === 'shift' ? 'checked' : ''}>
+                <span><strong>Směna ve studiu</strong><small>Držím studio otevřené. Klienti si mě můžou zarezervovat na konzultaci.</small></span></label>
+        </div>
+        <div class="form-group" id="fTypesWrap"><label>Na co</label>
+            <div class="check-list">
+                <label><input type="checkbox" id="fStudioT" ${types.includes('studio') ? 'checked' : ''}> Konzultace ve studiu</label>
+                <label><input type="checkbox" id="fHomeT" ${types.includes('home') ? 'checked' : ''}> Návrh u klienta doma</label>
+            </div></div>
         <div class="form-group" id="fStudioWrap"><label>Studio</label>
-            <select id="fStudio">${studios.map(s => `<option value="${s}" ${s === block?.studio ? 'selected' : ''}>${STUDIO_LABELS[s]}</option>`).join('')}</select></div>
+            <select id="fStudio">${studios.map(s => `<option value="${s}" ${s === studioSel ? 'selected' : ''}>${STUDIO_LABELS[s]}</option>`).join('')}</select></div>
         <div class="row2">
-            <div class="form-group"><label>Od</label><input type="time" id="fFrom" step="1800" value="${block ? timeKey(toDate(block.start)) : '09:00'}"></div>
-            <div class="form-group"><label>Do</label><input type="time" id="fTo" step="1800" value="${block ? timeKey(toDate(block.end)) : '13:00'}"></div>
+            <div class="form-group"><label>Od</label><input type="time" id="fFrom" step="1800" value="${block ? timeKey(toDate(block.start)) : (kind === 'shift' && firstOpen ? firstOpen[0] : '09:00')}"></div>
+            <div class="form-group"><label>Do</label><input type="time" id="fTo" step="1800" value="${block ? timeKey(toDate(block.end)) : (kind === 'shift' && firstOpen ? firstOpen[1] : '13:00')}"></div>
         </div>
         <p class="hint hint--warn" id="fWarn"></p>
+        ${block ? '' : '<p class="hint">Vypsanou dostupnost půjde 30 minut opravit, pak už ji měnit nejde.</p>'}
         <p class="form-error" id="fErr"></p>
         <div class="btn-row">
             <button class="btn btn--primary" id="fSave">Uložit</button>
             ${block ? '<button class="btn btn--danger" id="fDelete">Smazat blok</button>' : ''}
         </div>`;
-    const refresh = () => {
-        const t = $('fType').value;
-        $('fStudioWrap').classList.toggle('hidden', t !== 'studio');
-        $('fWarn').textContent = openingWarning(t, $('fStudio').value, day, $('fFrom').value, $('fTo').value);
+    const kindNow = () => document.querySelector('input[name="fKind"]:checked').value;
+    const refresh = (kindChanged) => {
+        const k = kindNow();
+        $('fTypesWrap').classList.toggle('hidden', k === 'shift');
+        const usesStudio = k === 'shift' || $('fStudioT').checked;
+        $('fStudioWrap').classList.toggle('hidden', !usesStudio);
+        // Směna = otevírací doba studia (předvyplnit, jde upravit).
+        if (kindChanged && k === 'shift') {
+            const h = openingOn($('fStudio').value, day).h;
+            if (h) { $('fFrom').value = h[0]; $('fTo').value = h[1]; }
+        }
+        $('fWarn').textContent = openingWarning(usesStudio, $('fStudio').value, day, $('fFrom').value, $('fTo').value);
     };
-    ['fType', 'fStudio', 'fFrom', 'fTo'].forEach(id => $(id).addEventListener('change', refresh));
-    refresh();
-    $('fSave').addEventListener('click', () => saveBlock(block, day));
+    document.querySelectorAll('input[name="fKind"]').forEach(el => el.addEventListener('change', () => refresh(true)));
+    ['fStudioT', 'fHomeT', 'fFrom', 'fTo'].forEach(id => $(id).addEventListener('change', () => refresh(false)));
+    $('fStudio').addEventListener('change', () => refresh(kindNow() === 'shift'));
+    refresh(false);
+    $('fSave').addEventListener('click', () => saveBlock(block, day, kindNow()));
     if (block) $('fDelete').addEventListener('click', () => deleteBlock(block));
     $('modal').classList.add('open');
 }
 
-async function saveBlock(block, day) {
-    const serviceType = $('fType').value;
+async function saveBlock(block, day, kind) {
     const from = $('fFrom').value, to = $('fTo').value;
     if (!from || !to || from >= to) { $('fErr').textContent = 'Konec musí být po začátku.'; return; }
+    const serviceTypes = kind === 'shift' ? ['studio'] : [$('fStudioT').checked && 'studio', $('fHomeT').checked && 'home'].filter(Boolean);
+    if (!serviceTypes.length) { $('fErr').textContent = 'Vyber, na co jsi k dispozici.'; return; }
     const data = {
-        designerSlug, serviceType,
-        studio: serviceType === 'studio' ? $('fStudio').value : null,
+        designerSlug, kind, serviceTypes,
+        studio: serviceTypes.includes('studio') ? $('fStudio').value : null,
         start: pragueToDate(day, from), end: pragueToDate(day, to),
     };
-    const overlap = blocks.some(b => b.id !== block?.id && b.serviceType === serviceType && toDate(b.start) < data.end && toDate(b.end) > data.start);
-    if (overlap) { $('fErr').textContent = 'Překrývá se s jiným blokem stejné služby.'; return; }
+    const overlap = blocks.some(b => b.id !== block?.id && !b.permanent && toDate(b.start) < data.end && toDate(b.end) > data.start);
+    if (overlap) { $('fErr').textContent = 'Překrývá se s jiným tvým blokem.'; return; }
     if (DEMO) { showToast('Demo: blok by se uložil'); closeModal(); return; }
     try {
         const payload = { ...data, start: Timestamp.fromDate(data.start), end: Timestamp.fromDate(data.end) };
         if (block) await updateDoc(doc(db, 'res_availability', block.id), payload);
-        else await addDoc(collection(db, 'res_availability'), { ...payload, createdBy: me, createdAt: Timestamp.now() });
+        else await addDoc(collection(db, 'res_availability'), { ...payload, createdBy: me, createdAt: serverTimestamp() });
         showToast('Uloženo', 'success');
         closeModal();
         load();
     } catch (err) {
         console.error(err);
-        $('fErr').textContent = 'Uložit se nepodařilo (oprávnění?).';
+        $('fErr').textContent = block ? 'Uložit se nepodařilo — blok už nejde měnit (po 30 minutách jen admin).' : 'Uložit se nepodařilo (oprávnění?).';
     }
 }
 
 async function deleteBlock(block) {
     if (!confirm('Smazat tento blok? Už domluvené rezervace zůstávají.')) return;
     if (DEMO) { showToast('Demo: blok by se smazal'); closeModal(); return; }
-    await deleteDoc(doc(db, 'res_availability', block.id));
-    closeModal();
-    load();
+    try {
+        await deleteDoc(doc(db, 'res_availability', block.id));
+        closeModal();
+        load();
+    } catch (err) {
+        console.error(err);
+        $('fErr').textContent = 'Smazat nejde — po 30 minutách už jen admin.';
+    }
 }
 
 // "Zkopírovat týden" místo opakovacích pravidel (spec kap. 4): bloky tohoto
-// týdne → stejné dny a časy příští týden, existující stejné bloky se přeskočí.
+// týdne → stejné dny a časy příští týden, existující překrývající se přeskočí.
 async function copyWeek() {
-    if (!blocks.length) { showToast('Tento týden nemá žádné bloky.'); return; }
+    const own = blocks.filter(b => !b.permanent);
+    if (!own.length) { showToast('Tento týden nemá žádné bloky.'); return; }
     const nextKey = addDaysKey(weekKey, 7);
-    if (!confirm(`Zkopírovat ${blocks.length} bloků na týden od ${fmtDay(pragueToDate(nextKey))}?`)) return;
+    if (!confirm(`Zkopírovat ${own.length} bloků na týden od ${fmtDay(pragueToDate(nextKey))}?`)) return;
     if (DEMO) { showToast('Demo: bloky by se zkopírovaly'); return; }
     const from = pragueToDate(nextKey), to = pragueToDate(addDaysKey(nextKey, 7));
     const existing = (await getDocs(query(collection(db, 'res_availability'), where('start', '>=', Timestamp.fromDate(from)), where('start', '<', Timestamp.fromDate(to)))))
         .docs.map(d => d.data()).filter(b => b.designerSlug === designerSlug);
     const batch = writeBatch(db);
     let n = 0;
-    for (const b of blocks) {
+    for (const b of own) {
         // Přes pražský čas, ať blok sedí i přes přechod letního/zimního času.
         const day = addDaysKey(dateKey(toDate(b.start)), 7);
         const start = pragueToDate(day, timeKey(toDate(b.start)));
         const end = pragueToDate(day, timeKey(toDate(b.end)));
-        if (existing.some(e => e.serviceType === b.serviceType && toDate(e.start) < end && toDate(e.end) > start)) continue;
+        if (existing.some(e => toDate(e.start) < end && toDate(e.end) > start)) continue;
         batch.set(doc(collection(db, 'res_availability')), {
-            designerSlug, serviceType: b.serviceType, studio: b.studio || null,
-            start: Timestamp.fromDate(start), end: Timestamp.fromDate(end), createdBy: me, createdAt: Timestamp.now(),
+            designerSlug, kind: b.kind || 'flex', serviceTypes: blockTypes(b), studio: b.studio || null,
+            start: Timestamp.fromDate(start), end: Timestamp.fromDate(end), createdBy: me, createdAt: serverTimestamp(),
         });
         n++;
     }

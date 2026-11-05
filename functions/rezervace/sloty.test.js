@@ -11,8 +11,10 @@ const hhmm = (date) => date.toLocaleTimeString("cs-CZ", { timeZone: "Europe/Prag
 const STUDIO = { id: "konzultace-studio", type: "studio", durationMin: 60, minLeadHours: 1, horizonDays: 60 };
 const HOME = { id: "navrh-doma", type: "home", durationMin: 120, minLeadHours: 48, horizonDays: 60 };
 
-const studioBlock = (start, end, slug = "jana", studio = "praha") => ({ designerSlug: slug, serviceType: "studio", studio, start, end });
-const homeBlock = (start, end, slug = "jana") => ({ designerSlug: slug, serviceType: "home", start, end });
+const studioBlock = (start, end, slug = "jana", studio = "praha") => ({ designerSlug: slug, kind: "flex", serviceTypes: ["studio"], studio, start, end });
+const homeBlock = (start, end, slug = "jana") => ({ designerSlug: slug, kind: "flex", serviceTypes: ["home"], start, end });
+const bothBlock = (start, end, slug = "jana", studio = "praha") => ({ designerSlug: slug, kind: "flex", serviceTypes: ["studio", "home"], studio, start, end });
+const shift = (start, end, slug = "jana", studio = "praha") => ({ designerSlug: slug, kind: "shift", studio, start, end });
 
 test("studio: krok 30 min, délka 60 min, jen v bloku", () => {
   const now = P(2026, 11, 9, 8); // po 9. 11. 8:00
@@ -141,4 +143,46 @@ test("isSlotFree: konkrétní termín a designér", () => {
   assert.equal(isSlotFree(p, "jana", P(2026, 11, 10, 10)), false);
   assert.equal(isSlotFree(p, "jana", P(2026, 11, 10, 9, 15)), false); // nezarovnaný čas
   assert.equal(isSlotFree(p, "petr", P(2026, 11, 10, 9)), false); // nemá blok
+});
+
+test("volno na obojí: jeden blok nabízí studio i návrh doma", () => {
+  const now = P(2026, 11, 9, 8);
+  const availability = [bothBlock(P(2026, 11, 12, 9), P(2026, 11, 12, 13))];
+  assert.equal(computeSlots({ service: STUDIO, availability, now, studio: "praha" }).length, 7);
+  assert.deepEqual(computeSlots({ service: HOME, availability, now }).map((s) => hhmm(s.start)), ["09:00", "09:30", "10:00", "10:30", "11:00"]);
+});
+
+test("volno na obojí: rezervace jedné služby zabere čas i pro druhou", () => {
+  const now = P(2026, 11, 9, 8);
+  const availability = [bothBlock(P(2026, 11, 12, 9), P(2026, 11, 12, 13))];
+  const bookings = [{ designerSlug: "jana", serviceType: "home", start: P(2026, 11, 12, 9), end: P(2026, 11, 12, 11), status: "confirmed" }];
+  assert.deepEqual(computeSlots({ service: STUDIO, availability, bookings, now, studio: "praha" }).map((s) => hhmm(s.start)), ["11:00", "11:30", "12:00"]);
+});
+
+test("směna ve studiu: konzultace ano, návrh doma ne", () => {
+  const now = P(2026, 11, 9, 8);
+  const availability = [shift(P(2026, 11, 12, 9), P(2026, 11, 12, 18))];
+  assert.equal(computeSlots({ service: STUDIO, availability, now, studio: "praha" }).length, 17);
+  assert.equal(computeSlots({ service: HOME, availability, now }).length, 0);
+  assert.equal(computeSlots({ service: STUDIO, availability, now, studio: "brno" }).length, 0);
+});
+
+test("čas na přesun kolem návrhu doma", () => {
+  const now = P(2026, 11, 9, 8);
+  const availability = [bothBlock(P(2026, 11, 12, 8), P(2026, 11, 12, 16))];
+  const bookings = [{ designerSlug: "jana", serviceType: "home", start: P(2026, 11, 12, 10), end: P(2026, 11, 12, 12), status: "confirmed" }];
+  // Konzultace ve studiu: 60 min přesun před a po výjezdu (10–12) → nejdřív 13:00, nejpozději končí v 9:00.
+  const studio = computeSlots({ service: STUDIO, availability, bookings, now, studio: "praha", travelMin: 60 }).map((s) => hhmm(s.start));
+  assert.deepEqual(studio, ["08:00", "13:00", "13:30", "14:00", "14:30", "15:00"]);
+  // Bez přesunu by šlo hned 12:00.
+  assert.ok(computeSlots({ service: STUDIO, availability, bookings, now, studio: "praha" }).some((s) => hhmm(s.start) === "12:00"));
+  // Studio vs. studio se přesun neuplatní.
+  const b2 = [{ ...bookings[0], serviceType: "studio" }];
+  assert.ok(computeSlots({ service: STUDIO, availability, bookings: b2, now, studio: "praha", travelMin: 60 }).some((s) => hhmm(s.start) === "12:00"));
+});
+
+test("starý tvar bloku (serviceType) dál funguje", () => {
+  const now = P(2026, 11, 9, 8);
+  const old = [{ designerSlug: "jana", serviceType: "studio", studio: "praha", start: P(2026, 11, 12, 9), end: P(2026, 11, 12, 10) }];
+  assert.equal(computeSlots({ service: STUDIO, availability: old, now, studio: "praha" }).length, 1);
 });

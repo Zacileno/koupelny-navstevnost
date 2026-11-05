@@ -139,8 +139,9 @@ export const DEMO_USERS = {
 export function demoAvailability() {
     const out = [];
     for (let i = 0; i < 7; i++) {
-        out.push({ id: `a${i}s`, designerSlug: 'demo', serviceType: 'studio', studio: 'praha', start: demoAt(i, 9), end: demoAt(i, 13) });
-        if (i % 2 === 0) out.push({ id: `a${i}h`, designerSlug: 'demo', serviceType: 'home', start: demoAt(i, 14), end: demoAt(i, 18) });
+        if (i % 2 === 0) out.push({ id: `a${i}s`, designerSlug: 'demo', kind: 'shift', serviceTypes: ['studio'], studio: 'praha', start: demoAt(i, 9), end: demoAt(i, 13) });
+        else out.push({ id: `a${i}s`, designerSlug: 'demo', kind: 'flex', serviceTypes: ['studio', 'home'], studio: 'praha', start: demoAt(i, 9), end: demoAt(i, 13) });
+        if (i % 2 === 0) out.push({ id: `a${i}h`, designerSlug: 'demo', kind: 'flex', serviceTypes: ['home'], start: demoAt(i, 14), end: demoAt(i, 18) });
     }
     return out;
 }
@@ -168,7 +169,7 @@ export function demoBusy() {
 }
 
 function demoAkce(action, data) {
-    if (action === 'info') return { raynetConfigured: true, raynetMock: false, isAdmin: true };
+    if (action === 'info') return { raynetConfigured: true, raynetMock: false, isAdmin: true, manageAll: true, slug: 'demo' };
     if (action === 'sloty') {
         const slots = [];
         for (let i = 1; i < 6; i++) for (const h of [9, 10, 11]) {

@@ -2,9 +2,12 @@
 // zjištění k API v docs/rezervace-pruzkum.md).
 //
 // Rozsah výjimky z "Raynet bez integrace" — nic navíc:
-//  - zápis: kontakt (jen když neexistuje) a událost pro rezervaci z platformy,
-//    úprava a zrušení JEN těchto vlastních událostí,
-//  - čtení: jen časy událostí/schůzek designérů (od–do, vlastník).
+//  - zápis: klient (jen když neexistuje, s adresou studia kvůli středisku
+//    v Pohodě), obchodní případ a událost pro rezervaci z platformy — každá
+//    schůzka = obchodní případ (Martin 2026-11-05). Úprava a zrušení JEN těchto
+//    vlastních záznamů,
+//  - čtení: časy událostí/schůzek designérů (od–do, vlastník) a hledání
+//    existujícího klienta podle telefonu/e-mailu.
 //
 // Credentials: Firestore `config/raynet` { instanceName, username, apiKey },
 // klientská pravidla žádná → čte jen Admin SDK. Nastavení: scripts/set-raynet-config.js.
@@ -103,18 +106,19 @@ class RaynetApi {
     return out;
   }
 
-  // Kontakt: telefon (fulltext + ověření čísla), pak e-mail (přesná shoda),
-  // jinak založit osobu (lze vypnout v config/rezervace.raynet.createContact).
-  async findOrCreatePerson({ name, phone, email }, { ownerId, create = true }) {
+  // Klient (fyzická osoba): telefon (fulltext + ověření čísla), pak e-mail
+  // (přesná shoda), jinak založit — adresa = studio (středisko v Pohodě).
+  async findOrCreateClient({ name, phone, email }, { ownerId, studioAddress, defaults, create = true }) {
     const want9 = last9(phone);
+    const phonesOf = (c) => [c.primaryAddress, ...(c.addresses || [])]
+      .map((a) => a?.contactInfo).filter(Boolean).flatMap((ci) => [ci.tel1, ci.tel2]);
     if (want9.length === 9) {
-      const json = await this.call("GET", "/person/", { query: { fulltext: want9, limit: 20 } });
-      const hit = (json?.data || []).find((p) =>
-        [p.contactInfo?.tel1, p.contactInfo?.tel2].some((t) => last9(t) === want9));
+      const json = await this.call("GET", "/company/", { query: { fulltext: want9, limit: 20 } });
+      const hit = (json?.data || []).find((c) => phonesOf(c).some((t) => last9(t) === want9));
       if (hit) return { id: hit.id, created: false };
     }
     if (email) {
-      const json = await this.call("GET", "/person/", { query: { "contactInfo.email": email, limit: 5 } });
+      const json = await this.call("GET", "/company/", { query: { "primaryAddress-contactInfo.email": email, limit: 5 } });
       const hit = (json?.data || [])[0];
       if (hit) return { id: hit.id, created: false };
     }
@@ -122,23 +126,47 @@ class RaynetApi {
     const parts = String(name || "").trim().split(/\s+/);
     const lastName = parts.length > 1 ? parts.pop() : parts[0] || "Klient";
     const firstName = parts.length ? parts.join(" ") : "";
-    const json = await this.call("PUT", "/person/", {
+    const json = await this.call("PUT", "/company/", {
       body: {
+        name: [firstName, lastName].filter(Boolean).join(" "),
+        person: true,
         firstName,
         lastName,
         owner: ownerId,
-        contactInfo: { email: email || null, tel1: phone || null, tel1Type: "mobil" },
+        rating: defaults.companyRating,
+        state: defaults.companyState,
+        role: defaults.companyRole,
+        addresses: [{
+          address: { country: "CZ", ...studioAddress },
+          contactInfo: { email: email || null, tel1: phone || null, tel1Type: "mobil" },
+        }],
         tags: [TAG],
       },
     });
     return { id: json.data.id, created: true };
   }
 
-  async createEvent(entity, data) {
-    const json = await this.call("PUT", `/${entity}/`, { body: { ...data, tags: [TAG] } });
+  async createBusinessCase(data) {
+    const json = await this.call("PUT", "/businessCase/", { body: data });
     const id = json.data.id;
     try {
-      await this.call("PUT", `/${entity}/${id}/extId/`, { body: { extId: data._extId } });
+      await this.call("PUT", `/businessCase/${id}/extId/`, { body: { extId: data._extId } });
+    } catch (err) {
+      console.warn("raynet: extId OP se nepodařilo uložit", id, err.message);
+    }
+    return id;
+  }
+
+  async updateBusinessCase(id, data) {
+    await this.call("POST", `/businessCase/${id}/`, { body: data });
+  }
+
+  async createEvent(entity, data) {
+    const { _extId, ...body } = data;
+    const json = await this.call("PUT", `/${entity}/`, { body: { ...body, tags: [TAG] } });
+    const id = json.data.id;
+    try {
+      await this.call("PUT", `/${entity}/${id}/extId/`, { body: { extId: _extId } });
     } catch (err) {
       // Externí ID je jen pojistka — párujeme primárně podle uloženého eventId.
       console.warn("raynet: extId se nepodařilo uložit", id, err.message);
@@ -177,12 +205,24 @@ class RaynetMock {
   async listCalendar(ownerId, from, to) {
     const snap = await this.col.where("owner", "==", ownerId).get();
     return snap.docs
+      .filter((d) => d.data().start)
       .map((d) => ({ id: d.id, entity: d.data().entity || "event", start: d.data().start.toDate(), end: d.data().end.toDate() }))
       .filter((e) => e.start < to && e.end > from);
   }
 
-  async findOrCreatePerson({ name, phone, email }) {
-    return { id: `mock-person-${last9(phone) || email || name}`, created: true };
+  async findOrCreateClient({ name, phone, email }, { studioAddress }) {
+    const id = `mock-klient-${last9(phone) || email || name}`;
+    await this.col.doc(id).set({ entity: "company", name: name || "", studioAddress: studioAddress || null }, { merge: true });
+    return { id, created: true };
+  }
+
+  async createBusinessCase(data) {
+    const ref = await this.col.add({ entity: "businessCase", name: data.name, company: data.company, owner: data.owner, extId: data._extId });
+    return ref.id;
+  }
+
+  async updateBusinessCase(id, data) {
+    await this.col.doc(String(id)).set(data, { merge: true });
   }
 
   async createEvent(entity, data) {

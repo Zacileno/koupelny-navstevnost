@@ -21,6 +21,7 @@
 <div class="page-wrap">
     <nav class="subnav">
         <a href="kalendar.html" data-keep>Můj kalendář</a>
+        <a href="studio.html" data-keep>Kalendář studia</a>
         <a href="prehled.html" class="active" data-keep>Přehled rezervací</a>
         <a href="nastaveni.html" data-keep id="navSettings" class="hidden">Nastavení</a>
     </nav>
@@ -35,6 +36,7 @@
         <select id="fStudio" aria-label="Studio"><option value="">Všechna studia</option></select>
         <select id="fDesigner" aria-label="Designér"><option value="">Všichni designéři</option></select>
         <span class="spacer"></span>
+        <button class="btn btn--ghost btn--sm" id="exportBtn">Aktivita za měsíc</button>
         <button class="btn btn--primary btn--sm" id="newBtn">+ Rezervace po telefonu</button>
     </div>
     <div id="list"><div class="loader"><div class="spinner"></div>Načítám…</div></div>
@@ -61,7 +63,9 @@ let db = null, me = null;
 let users = {}, services = [], bookings = [];
 let homeRegions = DEFAULT_HOME_REGIONS;
 const regionName = (id) => homeRegions.find(r => r.id === id)?.name || id || '';
-let info = { raynetConfigured: false, isAdmin: false };
+let info = { raynetConfigured: false, isAdmin: false, manageAll: false, slug: null };
+// Každý spravuje svoje rezervace; všechny jen admin/HR a „Spravuje všechny rezervace“.
+const canManage = (b) => info.manageAll || b.designerSlug === info.slug;
 let unsub = null;
 let openId = null;
 const $ = (id) => document.getElementById(id);
@@ -93,6 +97,9 @@ async function init() {
     $('fStudio').innerHTML += Object.entries(STUDIO_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
     $('fDesigner').innerHTML += Object.entries(users).filter(([, u]) => u.reservations?.enabled)
         .map(([s, u]) => `<option value="${s}">${escapeHtml(u.name || s)}</option>`).join('');
+    // Designér vidí nejdřív svoje rezervace (filtr jde přepnout).
+    if (!info.manageAll && info.slug && users[info.slug]?.reservations?.enabled) $('fDesigner').value = info.slug;
+    $('exportBtn').addEventListener('click', openExport);
     ['fStatus', 'fService', 'fStudio', 'fDesigner'].forEach(id => $(id).addEventListener('change', render));
     $('fWhen').addEventListener('change', subscribe);
     $('newBtn').addEventListener('click', openNew);
@@ -166,7 +173,8 @@ function renderDetail() {
     if (!b) { closeModal(); return; }
     const r = b.raynet || {};
     const moved = r.movedInRaynet ? `<div class="banner banner--warn">V Raynetu je tahle schůzka na ${escapeHtml(fmtDateTime(r.movedInRaynet.start))}. Klient má platný termín z appky — pokud se má opravdu přesunout, přesuň ji tady (jinak dostane SMS na starý termín).</div>` : '';
-    const canChange = ['requested', 'confirmed'].includes(b.status);
+    const mine = canManage(b);
+    const canChange = mine && ['requested', 'confirmed'].includes(b.status);
     $('modalBody').innerHTML = `
         <h2>${escapeHtml(b.client?.name || '')}</h2>
         <p class="hint">${escapeHtml(b.serviceName || '')} · ${statusChip(b.status)} ${raynetChip(b, info.raynetConfigured)}</p>
@@ -183,15 +191,17 @@ function renderDetail() {
             <dt>E-mail</dt><dd>${escapeHtml(b.client?.email || '—')}</dd>
             <dt>Poznámka</dt><dd>${escapeHtml(b.note || '—')}</dd>
             <dt>Zdroj</dt><dd>${escapeHtml(SOURCE_LABELS[b.source] || b.source)}${b.utm?.source ? ` · ${escapeHtml(b.utm.source)}/${escapeHtml(b.utm.medium || '')} ${escapeHtml(b.utm.campaign || '')}` : ''}</dd>
+            ${r.businessCaseId ? `<dt>Raynet OP</dt><dd>${escapeHtml(r.businessCaseId)}</dd>` : ''}
             ${r.error ? `<dt>Raynet</dt><dd style="color:var(--danger)">${escapeHtml(r.error)}</dd>` : ''}
         </dl>
         <h3>Akce</h3>
-        <div class="form-group"><label>Poznámka k akci (nepovinné)</label><input id="aNote" type="text" placeholder="např. záloha uhrazena"></div>
+        ${mine ? '<div class="form-group"><label>Poznámka k akci (nepovinné)</label><input id="aNote" type="text" placeholder="např. záloha uhrazena"></div>' : ''}
         <div class="btn-row">
-            ${b.status === 'requested' ? '<button class="btn btn--success" data-act="potvrdit">Potvrdit (záloha uhrazena)</button>' : ''}
+            ${!mine ? '<p class="hint">Tuhle rezervaci spravuje její designér nebo CX.</p>' : ''}
+            ${mine && b.status === 'requested' ? '<button class="btn btn--success" data-act="potvrdit">Potvrdit (záloha uhrazena)</button>' : ''}
             ${canChange ? '<button class="btn btn--ghost" data-act="presunout">Přesunout…</button>' : ''}
-            ${['confirmed', 'no_show'].includes(b.status) ? '<button class="btn btn--ghost" data-act="done">Proběhlo</button>' : ''}
-            ${['confirmed', 'done'].includes(b.status) ? '<button class="btn btn--ghost" data-act="no_show">Nedorazil</button>' : ''}
+            ${mine && ['confirmed', 'no_show'].includes(b.status) ? '<button class="btn btn--ghost" data-act="done">Proběhlo</button>' : ''}
+            ${mine && ['confirmed', 'done'].includes(b.status) ? '<button class="btn btn--ghost" data-act="no_show">Nedorazil</button>' : ''}
             ${canChange ? '<button class="btn btn--danger" data-act="zrusit">Zrušit rezervaci</button>' : ''}
         </div>
         <p class="form-error" id="aErr"></p>
@@ -236,8 +246,8 @@ function renderSlotPicker(box, serviceId, place, designerSlug, onPick) {
     box.innerHTML = `
         <div class="row2" style="margin-top:12px">
             <div class="form-group"><label>Od data</label><input type="date" id="sFrom" value="${today}"></div>
-            <div class="form-group"><label>Designér</label><select id="sDesigner"><option value="">Kdokoliv volný</option>
-                ${Object.entries(users).filter(([, u]) => u.reservations?.enabled).map(([s, u]) => `<option value="${s}" ${s === designerSlug ? 'selected' : ''}>${escapeHtml(u.name || s)}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Designér</label><select id="sDesigner">${info.manageAll ? '<option value="">Kdokoliv volný</option>' : ''}
+                ${Object.entries(users).filter(([s, u]) => u.reservations?.enabled && (info.manageAll || s === info.slug)).map(([s, u]) => `<option value="${s}" ${s === designerSlug ? 'selected' : ''}>${escapeHtml(u.name || s)}</option>`).join('')}</select></div>
         </div>
         <label class="hint" style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><input type="checkbox" id="sIgnore"> Přebít minimální předstih (jen po domluvě s klientem)</label>
         <div class="slots" id="sList"><span class="hint">Načítám…</span></div>
@@ -327,6 +337,73 @@ async function createNew(slot, ignoreLead) {
     } catch (err) {
         $('aErr').textContent = err.message || 'Rezervaci se nepodařilo založit.';
     }
+}
+
+// ── aktivita za měsíc (export pro Matouše) ──
+// Designéři dokládají aktivitu: počty schůzek po designérech + detail do CSV.
+// Každá schůzka = obchodní případ v Raynetu (sloupec OP) — obrat z OP doplní F3.
+
+function openExport() {
+    openId = null;
+    const now = new Date();
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const val = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+    $('modalBody').innerHTML = `
+        <h2>Aktivita za měsíc</h2>
+        <p class="hint">${info.manageAll ? 'Všichni designéři' : 'Tvoje schůzky'} — počty schůzek a detail do Excelu.</p>
+        <div class="toolbar" style="margin-top:12px"><input type="month" id="eMonth" value="${val}" style="color-scheme:dark"><button class="btn btn--primary btn--sm" id="eCsv">Stáhnout CSV</button></div>
+        <div id="eSummary"><div class="loader"><div class="spinner"></div>Načítám…</div></div>`;
+    $('eMonth').addEventListener('change', loadExport);
+    $('eCsv').addEventListener('click', downloadCsv);
+    $('modal').classList.add('open');
+    loadExport();
+}
+
+let exportRows = [];
+async function loadExport() {
+    const [y, m] = $('eMonth').value.split('-').map(Number);
+    const fromKey = `${y}-${String(m).padStart(2, '0')}-01`;
+    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const from = pragueToDate(fromKey), to = pragueToDate(next);
+    let rows;
+    if (DEMO) rows = demoBookings();
+    else {
+        const snap = await getDocs(query(collection(db, 'res_bookings'), where('start', '>=', Timestamp.fromDate(from)), where('start', '<', Timestamp.fromDate(to)), orderBy('start')));
+        rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    exportRows = rows.filter(b => info.manageAll || b.designerSlug === info.slug);
+    const per = {};
+    for (const b of exportRows) {
+        const p = per[b.designerSlug] ||= { total: 0, done: 0, no_show: 0, cancelled: 0, open: 0, web: 0, op: 0 };
+        p.total++;
+        if (b.status === 'done') p.done++;
+        else if (b.status === 'no_show') p.no_show++;
+        else if (b.status === 'cancelled') p.cancelled++;
+        else p.open++;
+        if (b.source === 'web') p.web++;
+        if (b.raynet?.businessCaseId) p.op++;
+    }
+    const list = Object.entries(per).sort((a, b) => b[1].total - a[1].total);
+    $('eSummary').innerHTML = list.length ? `<div class="table-wrap"><table class="tbl" style="margin-top:8px">
+        <tr><th>Designér</th><th>Schůzek</th><th>Proběhlo</th><th>Nedorazil</th><th>Zrušeno</th><th>Čeká / potvrzeno</th><th>Z webu</th><th>OP v Raynetu</th></tr>
+        ${list.map(([slug, p]) => `<tr><td>${escapeHtml(userName(slug))}</td><td><strong>${p.total}</strong></td><td>${p.done}</td><td>${p.no_show}</td><td>${p.cancelled}</td><td>${p.open}</td><td>${p.web}</td><td>${p.op}</td></tr>`).join('')}
+        </table></div>` : '<div class="empty-state">V tomhle měsíci žádné schůzky.</div>';
+}
+
+function downloadCsv() {
+    const cols = ['Datum', 'Čas', 'Designér', 'Služba', 'Studio / oblast', 'Klient', 'Telefon', 'E-mail', 'Stav', 'Zdroj', 'Kampaň', 'Raynet OP', 'ID rezervace'];
+    const esc = (v) => { const t = String(v ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const lines = exportRows.map(b => [
+        dateKey(toDate(b.start)), fmtTime(b.start), userName(b.designerSlug), b.serviceName,
+        b.serviceType === 'home' ? `doma – ${regionName(b.region)}` : (STUDIO_LABELS[b.studio] || b.studio),
+        b.client?.name, b.client?.phone, b.client?.email, STATUS_LABELS[b.status] || b.status,
+        SOURCE_LABELS[b.source] || b.source, b.utm?.campaign || '', b.raynet?.businessCaseId || '', b.id,
+    ].map(esc).join(';'));
+    // Středník + BOM kvůli českému Excelu (stejně jako export v CX dashboardu).
+    const blob = new Blob(['\ufeff' + [cols.join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `rezervace-aktivita-${$('eMonth').value}.csv` });
+    a.click();
+    URL.revokeObjectURL(a.href);
 }
 
 function closeModal() { openId = null; $('modal').classList.remove('open'); }

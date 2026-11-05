@@ -38,7 +38,7 @@ const SERVICES = {
     type: 'studio',
     description: 'Osobní konzultace s designérem v našem studiu.',
     durationMin: 60,          // ⚠️
-    minLeadHours: 1,          // ⚠️ "kdykoliv" = za 1 hodinu
+    minLeadHours: 2,          // konzultace ve studiu nejdřív za 2 hodiny (Martin 2026-11-05)
     horizonDays: 60,          // ⚠️
     bufferMin: 0,
     requiresConfirmation: false,
@@ -75,13 +75,19 @@ const CONFIG = {
     { id: 'hradec', name: 'Hradec Králové a okolí' },
     { id: 'pardubice', name: 'Pardubice a okolí' },
   ],
+  infolinePhone: '',        // jedno číslo jako infolinka (doplnit)
+  travelMin: 60,            // ⚠️ čas na přesun před a po návrhu doma
+  coverageAlertDays: 60,    // alert: studio bez směny 2 měsíce dopředu
   bulkEmail: '',
   alertRecipients: [],
   privacyUrl: '',
   blockHolidays: true,
   stepMin: 30,
   maxActivePerPhone: 3,
-  raynet: { busyEntities: ['event', 'meeting'], writeEntity: 'event', cancelMode: 'delete', createContact: true, liveCheck: true },
+  raynet: {
+    busyEntities: ['event', 'meeting'], writeEntity: 'event', cancelMode: 'delete', createContact: true, liveCheck: true,
+    createBusinessCase: true, businessCaseCategory: null, companyRating: 'A', companyState: 'A_POTENTIAL', companyRole: 'A_SUBSCRIBER',
+  },
 };
 
 async function ensure(ref, data) {
@@ -113,22 +119,31 @@ async function seedDemo() {
     if (isWorkingDay(y, m, d)) {
       const key = `${y}-${m}-${d}`;
       await db.collection('res_availability').doc(`demo-studio-${key}`).set({
-        designerSlug: 'demo-designer', serviceType: 'studio', studio: 'praha',
+        designerSlug: 'demo-designer', kind: 'flex', serviceTypes: ['studio'], studio: 'praha', createdAt: Timestamp.now(),
         start: Timestamp.fromDate(fromPrague(y, m, d, 9 * 60)), end: Timestamp.fromDate(fromPrague(y, m, d, 13 * 60)), createdBy: 'seed',
       });
       await db.collection('res_availability').doc(`demo-home-${key}`).set({
-        designerSlug: 'demo-designer', serviceType: 'home',
+        designerSlug: 'demo-designer', kind: 'flex', serviceTypes: ['home'], createdAt: Timestamp.now(),
         start: Timestamp.fromDate(fromPrague(y, m, d, 14 * 60)), end: Timestamp.fromDate(fromPrague(y, m, d, 18 * 60)), createdBy: 'seed',
       });
       await db.collection('res_availability').doc(`demo-brno-home-${key}`).set({
-        designerSlug: 'demo-brno', serviceType: 'home',
+        designerSlug: 'demo-brno', kind: 'flex', serviceTypes: ['home'], createdAt: Timestamp.now(),
         start: Timestamp.fromDate(fromPrague(y, m, d, 8 * 60)), end: Timestamp.fromDate(fromPrague(y, m, d, 12 * 60)), createdBy: 'seed',
       });
     }
     ({ y, m, d } = nextDay(y, m, d));
   }
+  // Stálá směna v Pardubicích (jako Barča) + otevírací doba, ať je co hlídat.
+  await db.collection('users').doc('demo-pardubice').set({
+    name: 'Demo Pardubice', active: true, department: 'sales', studios: ['pardubice'], email: 'pce@example.test',
+    reservations: { enabled: true, studios: ['pardubice'], services: ['konzultace-studio'], raynetUserId: 3, permanentShift: 'pardubice' },
+  }, { merge: true });
+  const week = { 1: ['09:00', '18:00'], 2: ['09:00', '18:00'], 3: ['09:00', '18:00'], 4: ['09:00', '18:00'], 5: ['09:00', '18:00'] };
+  await db.collection('config').doc('rezervace').set({
+    studios: { ...CONFIG.studios, pardubice: { ...CONFIG.studios.pardubice, openingHours: week, street: 'Pardubická 1', city: 'Pardubice', zipCode: '530 02' }, praha: { ...CONFIG.studios.praha, openingHours: week, street: 'Pražská 1', city: 'Praha', zipCode: '110 00' } },
+  }, { merge: true });
   await db.collection('config').doc('raynet').set({ mock: true });
-  console.log('  + demo designéři (Praha, Brno), bloky na 14 dní, config/raynet {mock:true}');
+  console.log('  + demo designéři (Praha, Brno, Pardubice se stálou směnou), bloky na 14 dní, otevírací doby, config/raynet {mock:true}');
 }
 
 async function main() {

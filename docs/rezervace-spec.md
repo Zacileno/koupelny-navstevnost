@@ -15,7 +15,7 @@
 | Co | Kde | Poznámka |
 |---|---|---|
 | Dostupnost designérů (bloky podle služby) | **Platforma** | Jediný zdroj pravdy pro „kdy můžu“ |
-| 1. schůzka (web, telefon, CX, lead) | **Platforma** → jednosměrně do Raynetu | Platforma hlídá pravidla a spouští notifikace |
+| 1. schůzka (web, telefon, CX, lead) | **Platforma** → jednosměrně do Raynetu | Platforma hlídá pravidla a spouští notifikace. **Každá rezervovaná schůzka = obchodní případ v Raynetu** (doplněno 2026-11-05) |
 | Přesun / zrušení 1. schůzky | **Platforma** | Jinak klient dostane SMS na starý termín |
 | 2. a další schůzky (obchodní případ) | **Raynet, jako dnes** | Designéři nemění návyk |
 | Obsazenost designéra | Platforma **čte z Raynetu jen časy událostí** (od–do, vlastník) | Odečte je z volných bloků, nic nezapisuje zpět |
@@ -23,7 +23,7 @@
 **Pravidlo pro designéry:** „V appce si vypisuješ, kdy můžeš. Schůzky plánuješ, kde jsi zvyklý.“
 
 **Výjimka z „Raynet bez integrace“** (rozhodl Martin 2026-11-05), úzce vymezená:
-- **Zápis:** kontakt (jen pokud neexistuje) a událost pro schůzku vzniklou na platformě, plus úprava a zrušení **jen těchto vlastních událostí**.
+- **Zápis:** klient (jen pokud neexistuje; fyzická osoba s **adresou studia** kvůli středisku v Pohodě), **obchodní případ** a událost pro schůzku vzniklou na platformě, plus úprava a zrušení **jen těchto vlastních záznamů**. Důvod (doplněno 2026-11-05): počty schůzek a poměr schůzka → obrat — každá schůzka musí být obchodní případ.
 - **Čtení:** jen časy událostí designérů. Žádné čtení obchodních případů ani obsahu cizích událostí.
 - Žádná úprava záznamů, které platforma sama nezaložila.
 - Obousměrná synchronizace objektů výslovně ne.
@@ -151,6 +151,19 @@
   - pravděpodobně **první `onSchedule` funkce** v projektu (Cloud Scheduler API, IAM). Počítat s pastmi jako u první `onCall`.
 - **Hosting:** `public/rezervovat/` je první stránka bez `requireAuth()`. Nesmí načítat `auth-common.js` způsobem, který přesměruje na login.
 
+## 12a. Body z porady 2026-11-05 (Martin) — zapracováno
+
+- Konzultace ve studiu nejdřív **za 2 hodiny** (`minLeadHours: 2`).
+- Designér si **proaktivně vypisuje**, kdy je k dispozici. Dva typy bloku: **Volno** (konzultace ve studiu a/nebo návrh doma — jeden blok na obojí) a **Směna ve studiu** (drží studio otevřené od–do podle otevírací doby, klienti si ho můžou rezervovat na konzultaci; návrh doma během směny ne). Mezi návrhem doma a jinou schůzkou se drží **čas na přesun** (`config/rezervace.travelMin`, ⚠️ výchozí 60 min).
+- **Stoly / kapacita studia se neřeší** — rezervuje se vždy konkrétní designér.
+- **Stálá směna:** kdo je ve studiu vždycky (Barča v Pardubicích, HPP), má `reservations.permanentShift` — směny se dopočítají z otevírací doby, nic nevypisuje.
+- **Kalendář celého studia** (`/rezervace/studio.html`) + kalendáře jednotlivců. **Alert 2 měsíce dopředu**, když má být studio otevřené a nikdo nemá směnu (v appce; e-mailem až F2). Jinak si to designéři bookují sami.
+- **Dostupnost rušit nejde** — kdo nemůže přijít, volá Matoušovi (admin ji upraví). Výjimka: oprava překlepu do 30 minut od založení bloku.
+- **Posouvat a rušit schůzky jde** — každý spravuje svoje rezervace; všechny admin/HR a kdo má „Spravuje všechny rezervace“ (CX, vedení).
+- **Jedno číslo jako infolinka** — `config/rezervace.infolinePhone`, ukazuje se na `/rezervovat/`.
+- **Raynet:** rezervovaná schůzka = klient + adresa studia + obchodní případ (+ událost v kalendáři designéra).
+- **Export pro Matouše:** „Aktivita za měsíc“ v přehledu — počty schůzek po designérech + CSV detail (vč. ID obchodního případu). Poměr schůzka → obrat až ve F3 (obrat z OP v Raynetu).
+
 ## 13. Otevřené body k odsouhlasení (⚠️)
 
 1. Návrh doma jako `requested` → potvrzení CX po úhradě zálohy, platba mimo systém.
@@ -169,4 +182,6 @@
 11. Souhlas se zpracováním osobních údajů ve veřejném formuláři — ve F1 informativní text s odkazem na zásady (`config/rezervace.privacyUrl`), bez checkboxu.
 12. Která entita Raynetu — Událost, nebo Schůzka (dnešní Make scénář)? Výchozí Událost, `config/rezervace.raynet.writeEntity`. Obsazenost se čte z obou.
 13. Zrušení v Raynetu smazáním (výchozí), nebo přejmenováním — `config/rezervace.raynet.cancelMode`.
+15. **Den, kdy musí být studio otevřené — může mít designér, který tam má směnu, ten den i návrh doma?** Dnes: během směny ne, před/po směně ano (s časem na přesun).
+16. Čas na přesun kolem návrhu doma — 60 min stačí, nebo podle oblasti?
 14. ~~Oblasti pro návrh doma — 4 podle studií, nebo jemněji?~~ **Rozhodnuto 2026-11-05 (Martin): stačí 4 oblasti podle studií.**

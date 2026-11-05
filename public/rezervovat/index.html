@@ -94,7 +94,7 @@ const DEMO = params.get('demo') === '1';
 const TZ = 'Europe/Prague';
 
 const state = {
-    services: [], studios: [], homeRegions: [], privacyUrl: '',
+    services: [], studios: [], homeRegions: [], privacyUrl: '', infoline: '',
     service: null,
     place: params.get('studio') || params.get('oblast') || null, // studio (konzultace) nebo oblast (návrh doma)
     designer: params.get('designer') || null,  // slug, nebo 'any' = kdokoliv volný
@@ -146,6 +146,8 @@ async function init() {
     state.studios = data.studios;
     state.homeRegions = data.homeRegions || [];
     state.privacyUrl = data.privacyUrl;
+    state.infoline = data.infolinePhone || '';
+    renderInfoline();
     state.linkDesigner = data.designer || null;
     if (state.designer && state.designer !== 'any' && !state.linkDesigner) state.designer = null; // neplatný odkaz → běžný výběr
 
@@ -161,6 +163,14 @@ async function init() {
     render();
     if (state.service && state.place) loadSlots();
 }
+
+// Jedno číslo jako infolinka — pro ty, kdo nenajdou termín nebo radši volají.
+function renderInfoline() {
+    if (!state.infoline) return;
+    const tel = state.infoline.replace(/\s/g, '');
+    $('lead').insertAdjacentHTML('afterend', `<p class="muted" id="infoline" style="margin:-12px 0 18px">Raději zavoláte? <a href="tel:${esc(tel)}" style="color:var(--blue);font-weight:600">${esc(state.infoline)}</a></p>`);
+}
+const callUs = () => state.infoline ? `zavolejte nám na <a href="tel:${esc(state.infoline.replace(/\s/g, ''))}">${esc(state.infoline)}</a>` : 'zavolejte nám';
 
 // Jediná možnost (např. designér jen v jednom studiu) → vybrat rovnou.
 function autoPlace() {
@@ -248,7 +258,7 @@ function designersHtml() {
     const list = state.linkDesigner && state.designer === state.linkDesigner.slug
         ? state.designers.filter(d => d.slug === state.designer)
         : state.designers;
-    if (!list.length) return '<p class="muted">Pro tuto volbu teď nemáme volného designéra. Zavolejte nám prosím, termín domluvíme.</p>';
+    if (!list.length) return `<p class="muted">Pro tuto volbu teď nemáme volného designéra. Prosím ${callUs()}, termín domluvíme.</p>`;
     const card = (d) => `<button class="designer ${state.designer === d.slug ? 'selected' : ''} ${d.nextSlot ? '' : 'disabled'}" data-designer="${d.slug}" ${d.nextSlot ? '' : 'disabled'}>
         ${avatar(d)}<div><strong>${esc(d.name)}</strong>${d.position ? `<small>${esc(d.position)}</small>` : ''}
         ${d.bio ? `<small class="bio">${esc(d.bio)}</small>` : ''}
@@ -297,7 +307,7 @@ function renderSlots() {
     const box = $('slots');
     if (!box) return;
     if (!state.slots.length) {
-        box.innerHTML = `<p class="muted">V nejbližších dnech bohužel nemáme volný termín.${state.fromDay ? '' : ' Zkuste jiného designéra, nebo nám zavolejte.'}</p>
+        box.innerHTML = `<p class="muted">V nejbližších dnech bohužel nemáme volný termín.${state.fromDay ? '' : ` Zkuste jiného designéra, nebo ${callUs()}.`}</p>
             ${state.fromDay ? '<button class="link" id="back">← Zpět na nejbližší termíny</button>' : ''}`;
         $('back')?.addEventListener('click', () => { state.fromDay = null; loadSlots(); });
         return;
@@ -380,7 +390,7 @@ function demoApi(path, opts) {
     if (!q.has('sluzba') && path.startsWith('volneTerminy')) {
         const d = DEMO_DESIGNERS.find(x => x.slug === q.get('designer'));
         return {
-            ok: true, privacyUrl: '', designer: d || null,
+            ok: true, privacyUrl: '', infolinePhone: '+420 800 123 456', designer: d || null,
             services: [
                 { id: 'konzultace-studio', name: 'Konzultace ve studiu', type: 'studio', durationMin: 60, priceText: 'zdarma', requiresConfirmation: false, description: 'Osobní konzultace s designérem v našem studiu.' },
                 { id: 'navrh-doma', name: 'Návrh u vás doma', type: 'home', durationMin: 120, priceText: '4 990 Kč vč. DPH', requiresConfirmation: true, description: 'Designér přijede k vám a navrhne koupelnu na místě.' },

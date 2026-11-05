@@ -67,20 +67,33 @@ service cloud.firestore {
       allow write: if isHrOrAdmin();
     }
 
-    // Dostupnost designéra: bloky si zapisuje designér sám (designerSlug == jeho
-    // slug), admin/HR za kohokoliv.
+    // Dostupnost designéra: bloky si vypisuje designér sám (designerSlug == jeho
+    // slug), admin/HR za kohokoliv. Typy: 'flex' (volno — studio a/nebo doma),
+    // 'shift' (směna ve studiu, jen konzultace).
+    // Zrušit/zkrátit dostupnost designér NESMÍ (rozhodnutí 2026-11-05 — volá
+    // Matoušovi, ten ji upraví jako admin). Výjimka: oprava překlepu do 30 minut
+    // od založení bloku. createdAt musí být čas serveru, ať se nedá obejít.
     function validAvailability(d) {
-      return d.serviceType in ['studio', 'home'] &&
+      return d.kind in ['flex', 'shift'] &&
         d.start is timestamp && d.end is timestamp && d.start < d.end &&
-        (d.serviceType == 'home' || d.studio in ['praha', 'brno', 'hradec', 'pardubice']);
+        d.serviceTypes is list && d.serviceTypes.size() > 0 && d.serviceTypes.hasOnly(['studio', 'home']) &&
+        (d.kind == 'flex' || d.serviceTypes == ['studio']) &&
+        (!('studio' in d.serviceTypes) || d.studio in ['praha', 'brno', 'hradec', 'pardubice']);
+    }
+    function withinGrace() {
+      return request.time < resource.data.createdAt + duration.value(30, 'm');
     }
     match /res_availability/{blockId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && validAvailability(request.resource.data) &&
+        request.resource.data.createdAt == request.time &&
         (request.resource.data.designerSlug == mySlug() || isHrOrAdmin());
       allow update: if isSignedIn() && validAvailability(request.resource.data) &&
-        ((resource.data.designerSlug == mySlug() && request.resource.data.designerSlug == mySlug()) || isHrOrAdmin());
-      allow delete: if isSignedIn() && (resource.data.designerSlug == mySlug() || isHrOrAdmin());
+        request.resource.data.createdAt == resource.data.createdAt && (
+          isHrOrAdmin() ||
+          (resource.data.designerSlug == mySlug() && request.resource.data.designerSlug == mySlug() && withinGrace())
+        );
+      allow delete: if isSignedIn() && (isHrOrAdmin() || (resource.data.designerSlug == mySlug() && withinGrace()));
     }
 
     // Rezervace a obsazenost z Raynetu: čtení přihlášeným, zápis jen přes

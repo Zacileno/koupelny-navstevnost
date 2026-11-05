@@ -18,9 +18,10 @@ const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https")
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
-const { computeSlots, BLOCKING_STATUSES, overlaps, horizonEnd } = require("./sloty");
+const { computeSlots, BLOCKING_STATUSES, overlaps, horizonEnd, gapMs } = require("./sloty");
 const { getRaynet, EXT_ID_PREFIX } = require("./raynet");
 const { DEFAULT_HOME_REGIONS, eligibleDesigners, publicProfile, homeRegionsOf } = require("./designeri");
+const { permanentShiftBlocks, studioCoverage } = require("./smeny");
 const { pragueDateKey, fromPrague, TZ } = require("../shared/cas");
 const { normalizePhone, isEmail } = require("../leady")._internal;
 
@@ -43,11 +44,17 @@ const DEFAULT_CONFIG = {
   blockHolidays: true,      // ve státní svátek se nic nenabízí
   stepMin: 30,
   maxActivePerPhone: 3,     // max. budoucích aktivních rezervací na jeden telefon (web)
+  travelMin: 60,            // ⚠️ čas na přesun před a po návrhu u klienta doma
+  infolinePhone: "",        // jedno číslo jako infolinka (ukazuje se na /rezervovat/)
+  coverageAlertDays: 60,    // jak daleko dopředu hlídat studio bez směny (2 měsíce)
   raynet: {
     busyEntities: ["event", "meeting"], // ⚠️ co designéři v Raynetu používají
     writeEntity: "event",               // ⚠️ Událost, nebo Schůzka
     cancelMode: "delete",               // ⚠️ "delete" | "rename"
-    createContact: true,                // ⚠️ zakládat osobu, když se nenajde
+    createContact: true,                // zakládat klienta, když se nenajde
+    createBusinessCase: true,           // každá schůzka = obchodní případ (Martin 2026-11-05)
+    businessCaseCategory: null,         // ⚠️ ID kategorie OP v Raynetu (číselník), nepovinné
+    companyRating: "A", companyState: "A_POTENTIAL", companyRole: "A_SUBSCRIBER", // povinná pole klienta
     liveCheck: true,                    // živá kontrola obsazenosti těsně před zápisem
   },
 };
@@ -121,16 +128,18 @@ async function slotContext(db, { service, studio, region, designer, from, to, cf
   const designers = eligibleDesigners(await loadDesigners(db), service, { studio, region })
     .filter((d) => !designer || d.slug === designer);
   const slugs = designers.map((d) => d.slug);
-  const [availability, bookings, busy] = await Promise.all([
+  const [stored, bookings, busy] = await Promise.all([
     loadAvailability(db, from, to),
     loadBookings(db, from, to),
     loadBusy(db, slugs),
   ]);
+  // Stálé směny (designér je ve studiu vždy podle otevírací doby) se dopočítají.
+  const availability = [...stored, ...permanentShiftBlocks(designers, cfg.studios, from - DAY_MS, to)];
   return {
     designers,
     params: {
       service, availability, bookings, busy, studio, designers: slugs,
-      stepMin: cfg.stepMin, blockHolidays: cfg.blockHolidays,
+      stepMin: cfg.stepMin, blockHolidays: cfg.blockHolidays, travelMin: cfg.travelMin,
     },
   };
 }
@@ -177,10 +186,11 @@ function validateRegion(service, region, cfg, { required = true } = {}) {
 
 // Zámek `res_locks/{designer}_{den}` serializuje souběžné zápisy pro stejného
 // designéra a den — dvě rezervace na stejný čas se tak nikdy obě nezapíšou.
-async function writeWithLock(db, { designerSlug, start, end, bufferMin, excludeId }, write) {
+async function writeWithLock(db, { designerSlug, start, end, bufferMin, travelMin, serviceType, excludeId }, write) {
   const dayKey = pragueDateKey(start);
   const lockRef = db.collection("res_locks").doc(`${designerSlug}_${dayKey}`);
   const bufMs = (bufferMin || 0) * MIN_MS;
+  const travelMs = (travelMin || 0) * MIN_MS;
   await db.runTransaction(async (tx) => {
     await tx.get(lockRef);
     const same = await tx.get(db.collection("res_bookings")
@@ -189,7 +199,8 @@ async function writeWithLock(db, { designerSlug, start, end, bufferMin, excludeI
       if (d.id === excludeId) return false;
       const b = d.data();
       if (!BLOCKING_STATUSES.includes(b.status)) return false;
-      return overlaps(start.getTime(), end.getTime(), b.start.toMillis() - bufMs, b.end.toMillis() + bufMs);
+      const gap = gapMs(serviceType, b.serviceType, bufMs, travelMs);
+      return overlaps(start.getTime(), end.getTime(), b.start.toMillis() - gap, b.end.toMillis() + gap);
     });
     if (clash) throw new HttpsError("aborted", "Termín byl mezitím obsazen. Vyberte prosím jiný.");
     tx.set(lockRef, { updatedAt: FieldValue.serverTimestamp() });
@@ -293,7 +304,7 @@ async function createBooking(input, { source, actor, internal }) {
       updatedBy: actor,
     };
     // eslint-disable-next-line no-await-in-loop
-    await writeWithLock(db, { designerSlug: designer.slug, start, end, bufferMin: service.bufferMin }, (tx, day) => {
+    await writeWithLock(db, { designerSlug: designer.slug, start, end, bufferMin: service.bufferMin, travelMin: cfg.travelMin, serviceType: service.type }, (tx, day) => {
       tx.create(ref, { ...booking, dayKey: day });
     });
     return { id: ref.id, ...booking, designerName: designer.name };
@@ -361,7 +372,7 @@ async function moveBooking(input, actor) {
     throw new HttpsError("failed-precondition", "Designér má v tu dobu v Raynetu jinou schůzku.");
   }
   const oldStart = toDate(booking.start);
-  await writeWithLock(db, { designerSlug, start, end, bufferMin: service.bufferMin, excludeId: booking.id }, (tx, dayKey) => {
+  await writeWithLock(db, { designerSlug, start, end, bufferMin: service.bufferMin, travelMin: cfg.travelMin, serviceType: service.type, excludeId: booking.id }, (tx, dayKey) => {
     tx.update(ref, {
       start: Timestamp.fromDate(start),
       end: Timestamp.fromDate(end),
@@ -453,6 +464,7 @@ exports.volneTerminy = onRequest({ region: REGION, maxInstances: 5, cors: PUBLIC
         homeRegions: cfg.homeRegions,
         designer,
         privacyUrl: cfg.privacyUrl || "",
+        infolinePhone: cfg.infolinePhone || "",
       });
       return;
     }
@@ -538,7 +550,18 @@ async function callerInfo(request) {
   const slug = request.auth?.token?.slug;
   if (!slug) throw new HttpsError("unauthenticated", "Přihlaste se prosím znovu.");
   const snap = await getFirestore().collection("users").doc(slug).get();
-  return { slug, isAdmin: ["hr", "admin"].includes(snap.data()?.platformRole) };
+  const isAdmin = ["hr", "admin"].includes(snap.data()?.platformRole);
+  // Každý si spravuje své rezervace (posun, zrušení). Všechny smí admin/HR a
+  // ten, kdo má v nastavení „Spravuje všechny rezervace“ (CX, Matouš).
+  return { slug, isAdmin, manageAll: isAdmin || snap.data()?.reservations?.manageAll === true };
+}
+
+async function assertCanManage(caller, id) {
+  if (caller.manageAll) return;
+  const snap = await getFirestore().collection("res_bookings").doc(String(id || "-")).get();
+  if (snap.exists && snap.data().designerSlug !== caller.slug) {
+    throw new HttpsError("permission-denied", "Můžeš spravovat jen svoje rezervace.");
+  }
 }
 
 exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
@@ -549,7 +572,7 @@ exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
   switch (data.action) {
     case "info": {
       const rn = await getRaynet();
-      return { raynetConfigured: !!rn, raynetMock: !!rn?.cfg?.mock, isAdmin: caller.isAdmin };
+      return { raynetConfigured: !!rn, raynetMock: !!rn?.cfg?.mock, isAdmin: caller.isAdmin, manageAll: caller.manageAll, slug: caller.slug };
     }
 
     case "sloty": {
@@ -570,23 +593,60 @@ exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
 
     case "vytvorit": {
       const source = SOURCES.includes(data.source) && data.source !== "web" ? data.source : "phone";
-      const b = await createBooking(data, { source, actor: caller.slug, internal: true });
+      // Designér zakládá rezervace jen sobě, CX/admin komukoliv.
+      if (!caller.manageAll && data.designerSlug && data.designerSlug !== caller.slug) {
+        throw new HttpsError("permission-denied", "Můžeš zakládat jen svoje rezervace.");
+      }
+      const input = caller.manageAll ? data : { ...data, designerSlug: caller.slug };
+      const b = await createBooking(input, { source, actor: caller.slug, internal: true });
       return { id: b.id, status: b.status, start: b.start.toDate().toISOString(), designerSlug: b.designerSlug };
     }
 
     case "potvrdit":
+      await assertCanManage(caller, data.id);
       return changeStatus(data.id, caller.slug, ["requested"], "confirmed", "potvrdit", data.note);
 
     case "zrusit":
+      await assertCanManage(caller, data.id);
       return changeStatus(data.id, caller.slug, ["requested", "confirmed"], "cancelled", "zrušit", data.note);
 
     case "stav": {
       if (!["done", "no_show"].includes(data.status)) throw new HttpsError("invalid-argument", "Stav musí být done nebo no_show.");
+      await assertCanManage(caller, data.id);
       return changeStatus(data.id, caller.slug, ["confirmed", "done", "no_show"], data.status, "změnit", data.note);
     }
 
     case "presunout":
+      await assertCanManage(caller, data.id);
+      if (!caller.manageAll && data.designerSlug && data.designerSlug !== caller.slug) {
+        throw new HttpsError("permission-denied", "Rezervaci můžeš přesunout jen v rámci svého kalendáře.");
+      }
       return moveBooking(data, caller.slug);
+
+    // Kalendář studia: kdo kdy drží směnu a dny, kdy má být studio otevřené,
+    // ale nikdo tam není (alert na 2 měsíce dopředu).
+    case "pokryti": {
+      const cfg = await loadConfig();
+      const studio = validateStudio({ type: "studio" }, data.studio);
+      const from = data.from ? new Date(data.from).getTime() : Date.now();
+      const days = Math.min(Number(data.days) || cfg.coverageAlertDays, 120);
+      const to = from + days * DAY_MS;
+      const designers = await loadDesigners(db);
+      const stored = (await loadAvailability(db, from, to)).filter((a) => a.studio === studio);
+      const shifts = [...stored, ...permanentShiftBlocks(designers, cfg.studios, from - DAY_MS, to)];
+      const coverage = studioCoverage(studio, cfg.studios[studio], shifts, from, to);
+      const iso = (d) => (d ? new Date(d).toISOString() : null);
+      return {
+        studio,
+        openingHoursSet: Object.keys(cfg.studios[studio]?.openingHours || {}).length > 0,
+        days: coverage.map((d) => ({
+          date: d.date, open: d.open?.map(iso) || null, covered: d.covered,
+          gaps: d.gaps.map(([a, b]) => [iso(a), iso(b)]), staff: d.staff,
+        })),
+        permanent: shifts.filter((x) => x.permanent && x.studio === studio)
+          .map((x) => ({ designerSlug: x.designerSlug, start: iso(x.start), end: iso(x.end) })),
+      };
+    }
 
     case "nastavitDesignera": {
       if (!caller.isAdmin) throw new HttpsError("permission-denied", "Nastavení designérů smí měnit jen admin.");
@@ -610,6 +670,10 @@ exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
         publicPosition: cut(r.publicPosition, 100),
         bio: cut(r.bio, 400),
         photoUrl,
+        // Vždy ve studiu (hlavní pracovní poměr) — směny podle otevírací doby.
+        permanentShift: STUDIOS.includes(r.permanentShift) ? r.permanentShift : null,
+        // Smí posouvat/rušit/potvrzovat rezervace všech (CX, vedení).
+        manageAll: r.manageAll === true,
       };
       // Jen pod-objekt `reservations` — nic jiného v users/{slug} se nemění.
       await ref.update({ reservations });
@@ -626,24 +690,52 @@ exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
 const ACTIVE_IN_RAYNET = ["confirmed", "done", "no_show"];
 const MAX_SYNC_ATTEMPTS = 10;
 
-function eventPayload(b, designer, cfg, personId) {
-  const studioName = b.studio ? (cfg.studios[b.studio]?.name || STUDIO_NAMES[b.studio]) : null;
-  const place = b.serviceType === "home" ? b.address : [studioName, cfg.studios[b.studio]?.address].filter(Boolean).join(", ");
-  const lines = [
+// Studio, ke kterému rezervace patří (u návrhu doma studio oblasti — oblasti
+// mají stejné klíče jako studia). Jeho adresa jde ke klientovi v Raynetu kvůli
+// středisku v Pohodě.
+const bookingStudio = (b) => b.studio || b.region || null;
+
+function studioAddress(cfg, key) {
+  const st = cfg.studios[key] || {};
+  const name = `Studio ${st.name || STUDIO_NAMES[key] || key || ""}`.trim();
+  return { name, street: st.street || "", city: st.city || st.name || STUDIO_NAMES[key] || "", zipCode: st.zipCode || "" };
+}
+
+function bookingDescription(b) {
+  return [
     `Rezervace z platformy (${b.source})`,
     `Klient: ${b.client?.name || ""}, ${b.client?.phone || ""}${b.client?.email ? `, ${b.client.email}` : ""}`,
     b.address ? `Adresa: ${b.address}` : "",
     b.note ? `Poznámka: ${b.note}` : "",
+    b.utm?.campaign ? `Kampaň: ${b.utm.source || ""} / ${b.utm.campaign}` : "",
     `ID rezervace: ${b.id}`,
-  ].filter(Boolean);
+  ].filter(Boolean).join("\n");
+}
+
+function businessCasePayload(b, designer, cfg, companyId) {
+  return {
+    name: `${b.serviceName || "Schůzka"} – ${b.client?.name || ""}`.trim(),
+    company: companyId,
+    owner: designer.reservations.raynetUserId,
+    validFrom: pragueDateKey(toDate(b.start)),
+    description: bookingDescription(b),
+    ...(cfg.raynet.businessCaseCategory ? { category: cfg.raynet.businessCaseCategory } : {}),
+    _extId: `${EXT_ID_PREFIX}${b.id}`,
+  };
+}
+
+function eventPayload(b, designer, cfg, { companyId, businessCaseId } = {}) {
+  const studioName = b.studio ? (cfg.studios[b.studio]?.name || STUDIO_NAMES[b.studio]) : null;
+  const place = b.serviceType === "home" ? b.address : [studioName, cfg.studios[b.studio]?.address].filter(Boolean).join(", ");
   return {
     title: `${b.serviceName || "Schůzka"} – ${b.client?.name || ""}`.trim(),
     owner: designer.reservations.raynetUserId,
-    person: personId || undefined,
+    company: companyId || undefined,
+    businessCase: businessCaseId || undefined,
     scheduledFrom: toDate(b.start).toISOString(),
     scheduledTill: toDate(b.end).toISOString(),
     meetingPlace: place || undefined,
-    description: lines.join("\n"),
+    description: bookingDescription(b),
     _extId: `${EXT_ID_PREFIX}${b.id}`,
   };
 }
@@ -693,19 +785,36 @@ async function syncBooking(ref, b) {
       return;
     }
 
+    const bk = { ...b, id: ref.id };
+
     if (designerChanged) {
       await rn.deleteEvent(entity, r.eventId);
+      // OP patří novému designérovi (vlastník), zůstává stejný případ.
+      if (r.businessCaseId) await rn.updateBusinessCase(r.businessCaseId, { owner: designer.reservations.raynetUserId });
     }
 
     if (needsCreate || designerChanged) {
-      let contactId = r.contactId || null;
-      if (!contactId) {
-        const person = await rn.findOrCreatePerson(b.client || {}, { ownerId: designer.reservations.raynetUserId, create: cfg.raynet.createContact });
-        contactId = person.id;
+      // Každá schůzka = obchodní případ: klient (s adresou studia) → OP → událost.
+      // Mezivýsledky se ukládají hned, ať opakování po chybě nezakládá duplicity.
+      let companyId = r.companyId || null;
+      if (!companyId) {
+        const client = await rn.findOrCreateClient(b.client || {}, {
+          ownerId: designer.reservations.raynetUserId,
+          studioAddress: studioAddress(cfg, bookingStudio(b)),
+          defaults: cfg.raynet,
+          create: cfg.raynet.createContact,
+        });
+        companyId = client.id;
+        if (companyId) await write({ companyId: String(companyId), companyCreated: client.created });
       }
-      const eventId = await rn.createEvent(cfg.raynet.writeEntity, eventPayload({ ...b, id: ref.id }, designer, cfg, contactId));
+      let businessCaseId = r.businessCaseId || null;
+      if (!businessCaseId && companyId && cfg.raynet.createBusinessCase) {
+        businessCaseId = await rn.createBusinessCase(businessCasePayload(bk, designer, cfg, companyId));
+        await write({ businessCaseId: String(businessCaseId) });
+      }
+      const eventId = await rn.createEvent(cfg.raynet.writeEntity, eventPayload(bk, designer, cfg, { companyId, businessCaseId }));
       await write({
-        state: "ok", entity: cfg.raynet.writeEntity, contactId, eventId: String(eventId),
+        state: "ok", entity: cfg.raynet.writeEntity, eventId: String(eventId),
         syncedStart: b.start, syncedEnd: b.end, syncedDesigner: b.designerSlug,
         syncedAt: Timestamp.now(), error: null, attempts: 0, movedInRaynet: null,
       });
@@ -713,7 +822,7 @@ async function syncBooking(ref, b) {
     }
 
     // timeChanged — upravit jen vlastní událost.
-    const { _extId, ...payload } = eventPayload({ ...b, id: ref.id }, designer, cfg, r.contactId);
+    const { _extId, ...payload } = eventPayload(bk, designer, cfg, { companyId: r.companyId, businessCaseId: r.businessCaseId });
     await rn.updateEvent(entity, r.eventId, payload);
     await write({ state: "ok", syncedStart: b.start, syncedEnd: b.end, syncedAt: Timestamp.now(), error: null, attempts: 0 });
   } catch (err) {

@@ -49,11 +49,29 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && bStart < aEnd;
 }
 
+// Typy bloků dostupnosti (designér je vypisuje sám, proaktivně):
+//  - kind 'flex' (volno): serviceTypes ['studio'] / ['home'] / obojí — "můžu na cokoliv",
+//  - kind 'shift' (směna ve studiu): drží studio otevřené od–do, bere jen
+//    konzultace ve studiu, návrh doma během směny ne.
+// Staré bloky s jedním `serviceType` se čtou jako volno pro tu jednu službu.
+function blockServiceTypes(a) {
+  if (a.kind === "shift") return ["studio"];
+  if (Array.isArray(a.serviceTypes)) return a.serviceTypes;
+  return a.serviceType ? [a.serviceType] : [];
+}
+
+// Mezera, která musí zůstat mezi dvěma schůzkami: pauza služby + čas na
+// přesun, pokud je aspoň jedna z nich u klienta doma (nebo neznámá z Raynetu
+// a nová je doma).
+function gapMs(newType, otherType, bufMs, travelMs) {
+  return bufMs + (newType === "home" || otherType === "home" ? travelMs : 0);
+}
+
 /**
  * @param {object} p
  * @param {object} p.service          { id, type:'studio'|'home', durationMin, minLeadHours, horizonDays, bufferMin }
- * @param {Array}  p.availability     [{ designerSlug, serviceType, studio?, start, end }]
- * @param {Array}  p.bookings         [{ id?, designerSlug, start, end, status }]
+ * @param {Array}  p.availability     [{ designerSlug, kind:'flex'|'shift', serviceTypes[], studio?, start, end }]
+ * @param {Array}  p.bookings         [{ id?, designerSlug, serviceType, start, end, status }]
  * @param {object} p.busy             { [designerSlug]: [{ start, end }] } — obsazenost z Raynetu
  * @param {Date}   p.now
  * @param {Date}   [p.from]           omezení okna (např. jen jeden týden)
@@ -64,6 +82,7 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
  * @param {boolean} [p.ignoreLead]    interní uživatel přebíjí předstih
  * @param {boolean} [p.blockHolidays=true] ve státní svátek nenabízet nic
  * @param {string} [p.excludeBookingId] při přesunu ignorovat přesouvanou rezervaci
+ * @param {number} [p.travelMin=0]    čas na přesun před a po návrhu u klienta doma
  * @returns {Array<{ start: Date, end: Date, designerSlug: string, studio: string|null }>}
  */
 function computeSlots(p) {
@@ -71,6 +90,7 @@ function computeSlots(p) {
   const stepMin = p.stepMin || 30;
   const durMs = service.durationMin * MIN_MS;
   const bufMs = (service.bufferMin || 0) * MIN_MS;
+  const travelMs = (p.travelMin || 0) * MIN_MS;
   const blockHolidays = p.blockHolidays !== false;
 
   let minStart = p.ignoreLead ? toMs(p.now) : earliestStart(service, p.now);
@@ -80,21 +100,24 @@ function computeSlots(p) {
 
   const allowed = p.designers ? new Set(p.designers) : null;
 
-  // Obsazené intervaly po designérech (rezervace + Raynet), rozšířené o buffer.
+  // Obsazené intervaly po designérech (rezervace + Raynet), rozšířené o pauzu
+  // a u výjezdů o čas na přesun.
   const taken = {};
   for (const b of p.bookings || []) {
     if (!BLOCKING_STATUSES.includes(b.status)) continue;
     if (p.excludeBookingId && b.id === p.excludeBookingId) continue;
-    (taken[b.designerSlug] ||= []).push([toMs(b.start) - bufMs, toMs(b.end) + bufMs]);
+    const gap = gapMs(service.type, b.serviceType, bufMs, travelMs);
+    (taken[b.designerSlug] ||= []).push([toMs(b.start) - gap, toMs(b.end) + gap]);
   }
   for (const [slug, intervals] of Object.entries(p.busy || {})) {
-    for (const i of intervals || []) (taken[slug] ||= []).push([toMs(i.start) - bufMs, toMs(i.end) + bufMs]);
+    const gap = gapMs(service.type, null, bufMs, travelMs);
+    for (const i of intervals || []) (taken[slug] ||= []).push([toMs(i.start) - gap, toMs(i.end) + gap]);
   }
 
   const seen = new Set();
   const out = [];
   for (const a of p.availability || []) {
-    if (a.serviceType !== service.type) continue;
+    if (!blockServiceTypes(a).includes(service.type)) continue;
     if (service.type === "studio" && p.studio && a.studio !== p.studio) continue;
     if (allowed && !allowed.has(a.designerSlug)) continue;
 
@@ -127,6 +150,8 @@ function isSlotFree(p, designerSlug, start) {
 
 module.exports = {
   BLOCKING_STATUSES,
+  blockServiceTypes,
+  gapMs,
   computeSlots,
   isSlotFree,
   earliestStart,

@@ -37,6 +37,7 @@
         <span class="spacer"></span>
         <select id="designerSelect" class="hidden" aria-label="Designér"></select>
         <button class="btn btn--ghost btn--sm" id="copyWeek">Zkopírovat týden na další</button>
+        <button class="btn btn--ghost btn--sm" id="mySettings">Moje nastavení</button>
     </div>
     <div id="banner"></div>
     <div class="week" id="week"><div class="loader"><div class="spinner"></div>Načítám…</div></div>
@@ -54,7 +55,7 @@ import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../share
 import {
     DEMO, DEMO_ADMIN, STUDIO_LABELS, TYPE_LABELS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
     pragueToDate, dateKey, timeKey, mondayKey, addDaysKey,
-    DEMO_USERS, demoAvailability, demoBookings, demoBusy,
+    DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS, demoAvailability, demoBookings, demoBusy, akce,
 } from './rezervace-common.js';
 
 const { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, writeBatch, Timestamp, serverTimestamp } =
@@ -65,6 +66,7 @@ let me = null;          // slug přihlášeného
 let isAdmin = false;
 let users = {};
 let config = { studios: {} };
+let services = [];
 let designerSlug = null;
 let weekKey = mondayKey(new Date());
 let blocks = [], bookings = [], busy = [];
@@ -73,7 +75,7 @@ const $ = (id) => document.getElementById(id);
 
 async function init() {
     if (DEMO) {
-        me = 'demo'; isAdmin = DEMO_ADMIN; users = DEMO_USERS;
+        me = 'demo'; isAdmin = DEMO_ADMIN; users = DEMO_USERS; services = DEMO_SERVICES;
         $('userName').textContent = 'Demo mód';
     } else {
         const session = await requireAuth('/login.html');
@@ -83,9 +85,10 @@ async function init() {
         $('userName').textContent = session.profile?.name ?? session.user.email;
         $('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
         ({ db } = await initFirebase());
-        const [usersSnap, cfgSnap] = await Promise.all([getDocs(collection(db, 'users')), getDoc(doc(db, 'config', 'rezervace'))]);
+        const [usersSnap, cfgSnap, sSnap] = await Promise.all([getDocs(collection(db, 'users')), getDoc(doc(db, 'config', 'rezervace')), getDocs(collection(db, 'res_services'))]);
         users = Object.fromEntries(usersSnap.docs.map(d => [d.id, d.data()]));
         if (cfgSnap.exists()) config = cfgSnap.data();
+        services = sSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => x.active !== false).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
     }
     if (DEMO) document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
     if (isAdmin) $('navSettings').classList.remove('hidden');
@@ -100,13 +103,14 @@ async function init() {
         sel.innerHTML = list.map(([s, u]) => `<option value="${s}">${escapeHtml(u.name || s)}${u.reservations?.enabled ? '' : ' (nepovolen)'}</option>`).join('');
         sel.value = designerSlug;
         sel.classList.remove('hidden');
-        sel.addEventListener('change', () => { designerSlug = sel.value; load(); });
+        sel.addEventListener('change', () => { designerSlug = sel.value; $('mySettings').classList.toggle('hidden', designerSlug !== me); load(); });
     }
 
     $('prevWeek').addEventListener('click', () => { weekKey = addDaysKey(weekKey, -7); load(); });
     $('nextWeek').addEventListener('click', () => { weekKey = addDaysKey(weekKey, 7); load(); });
     $('thisWeek').addEventListener('click', () => { weekKey = mondayKey(new Date()); load(); });
     $('copyWeek').addEventListener('click', copyWeek);
+    $('mySettings').addEventListener('click', openMySettings);
     $('modalClose').addEventListener('click', closeModal);
     $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
     await load();
@@ -351,6 +355,61 @@ async function copyWeek() {
     showToast(n ? `Zkopírováno ${n} bloků` : 'Příští týden už bloky má', 'success');
     weekKey = nextKey;
     load();
+}
+
+// ── moje nastavení ──
+// Kde a co dělám + veřejný profil si designér nastaví sám (akce mojeNastaveni).
+// Zapnutí rezervací, Raynet ID, stálou směnu a správu všech rezervací mění admin.
+
+function openMySettings() {
+    const u = users[me] || {};
+    const r = u.reservations || {};
+    const regions = config.homeRegions?.length ? config.homeRegions : DEFAULT_HOME_REGIONS;
+    const myRegions = Array.isArray(r.homeRegions) ? r.homeRegions : (r.studios || []);
+    const check = (attr, val, on, label) => `<label><input type="checkbox" ${attr}="${val}" ${on ? 'checked' : ''}> ${escapeHtml(label)}</label>`;
+    $('modalBody').innerHTML = `
+        <h2>Moje nastavení</h2>
+        <p class="hint">${escapeHtml(u.name || me)}</p>
+        <h3>Co dělám</h3>
+        <div class="check-list">${services.map(sv => check('data-ms-service', sv.id, (r.services || []).includes(sv.id), sv.name)).join('')}</div>
+        <h3>Konzultace ve studiu</h3>
+        <div class="check-list">${Object.entries(STUDIO_LABELS).map(([k, v]) => check('data-ms-studio', k, (r.studios || []).includes(k), v)).join('')}</div>
+        <h3>Návrh doma — kam jezdím</h3>
+        <div class="check-list">${regions.map(x => check('data-ms-region', x.id, myRegions.includes(x.id), x.name)).join('')}</div>
+        <h3>Můj profil pro klienty</h3>
+        <div class="form-group"><label>Pozice na webu</label><input id="msPosition" type="text" maxlength="100" placeholder="${escapeHtml(u.position || 'např. Designérka koupelen')}" value="${escapeHtml(r.publicPosition || '')}"></div>
+        <div class="form-group"><label>Krátké představení</label><textarea id="msBio" rows="2" maxlength="400" placeholder="Na co se specializuješ — uvidí to klienti při výběru designéra.">${escapeHtml(r.bio || '')}</textarea></div>
+        <div class="form-group"><label>Fotka (https:// odkaz)</label><input id="msPhoto" type="url" value="${escapeHtml(r.photoUrl || '')}"></div>
+        <h3>Nastavuje admin</h3>
+        <dl class="info-grid">
+            <dt>Rezervace</dt><dd>${r.enabled ? 'zapnuté — klienti tě vidí' : 'vypnuté — klienti tě zatím nevidí'}</dd>
+            <dt>Stálá směna</dt><dd>${r.permanentShift ? `studio ${escapeHtml(STUDIO_LABELS[r.permanentShift])}` : 'ne'}</dd>
+            <dt>Raynet</dt><dd>${r.raynetUserId ? 'propojeno' : 'chybí Raynet ID'}</dd>
+            <dt>Všechny rezervace</dt><dd>${r.manageAll ? 'spravuješ' : 'jen svoje'}</dd>
+        </dl>
+        <p class="form-error" id="msErr"></p>
+        <div class="btn-row"><button class="btn btn--primary" id="msSave">Uložit</button></div>`;
+    $('msSave').addEventListener('click', saveMySettings);
+    $('modal').classList.add('open');
+}
+
+async function saveMySettings() {
+    const vals = (attr) => [...document.querySelectorAll(`[${attr}]:checked`)].map(e => e.getAttribute(attr));
+    const reservations = {
+        services: vals('data-ms-service'), studios: vals('data-ms-studio'), homeRegions: vals('data-ms-region'),
+        publicPosition: $('msPosition').value.trim(), bio: $('msBio').value.trim(), photoUrl: $('msPhoto').value.trim(),
+    };
+    $('msSave').disabled = true;
+    try {
+        const res = await akce('mojeNastaveni', { reservations });
+        if (!DEMO) users[me] = { ...users[me], reservations: res.reservations };
+        showToast(DEMO ? 'Demo: uloženo by bylo' : 'Uloženo', 'success');
+        closeModal();
+        render();
+    } catch (err) {
+        $('msErr').textContent = err.message || 'Uložit se nepodařilo.';
+        $('msSave').disabled = false;
+    }
 }
 
 function closeModal() { $('modal').classList.remove('open'); }

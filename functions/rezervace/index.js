@@ -564,6 +564,47 @@ async function assertCanManage(caller, id) {
   }
 }
 
+// ── nastavení designéra (users/{slug}.reservations) ─────────────────────────
+
+// Co si designér smí změnit sám (mojeNastaveni) a co jen admin (nastavitDesignera).
+const SELF_KEYS = ["studios", "homeRegions", "services", "publicPosition", "bio", "photoUrl"];
+const ADMIN_ONLY_KEYS = ["enabled", "raynetUserId", "permanentShift", "manageAll"];
+const ALL_KEYS = [...SELF_KEYS, ...ADMIN_ONLY_KEYS];
+
+// Zvaliduje vstup a slije ho se stávajícím nastavením — klíče mimo `keys`
+// zůstanou, jak byly (designér si tak nemůže sám zapnout třeba správu všech).
+async function buildReservations(db, r, current, keys) {
+  const services = (await loadServices(db, { activeOnly: false })).map((s) => s.id);
+  const regionIds = ((await loadConfig()).homeRegions || []).map((x) => x.id);
+  const raynetUserId = r.raynetUserId === "" || r.raynetUserId == null ? null : Number(r.raynetUserId);
+  if (keys.includes("raynetUserId") && raynetUserId !== null && !Number.isInteger(raynetUserId)) {
+    throw new HttpsError("invalid-argument", "Raynet ID musí být číslo.");
+  }
+  const photoUrl = cut(r.photoUrl, 500);
+  if (keys.includes("photoUrl") && photoUrl && !/^https:\/\//.test(photoUrl)) {
+    throw new HttpsError("invalid-argument", "Fotka musí být https:// odkaz.");
+  }
+  const next = {
+    enabled: r.enabled === true,
+    studios: (r.studios || []).filter((s) => STUDIOS.includes(s)),
+    homeRegions: (r.homeRegions || []).filter((s) => regionIds.includes(s)),
+    services: (r.services || []).filter((s) => services.includes(s)),
+    raynetUserId,
+    // Veřejný profil na /rezervovat/ (firma tlačí konkrétní designéry).
+    publicPosition: cut(r.publicPosition, 100),
+    bio: cut(r.bio, 400),
+    photoUrl,
+    // Vždy ve studiu (hlavní pracovní poměr) — směny podle otevírací doby.
+    permanentShift: STUDIOS.includes(r.permanentShift) ? r.permanentShift : null,
+    // Smí posouvat/rušit/potvrzovat rezervace všech (CX, vedení).
+    manageAll: r.manageAll === true,
+  };
+  const out = { ...current };
+  for (const k of keys) if (k in r) out[k] = next[k];
+  for (const k of ALL_KEYS) if (out[k] === undefined) out[k] = k === "enabled" || k === "manageAll" ? false : (Array.isArray(next[k]) ? [] : null);
+  return out;
+}
+
 exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
   const caller = await callerInfo(request);
   const data = request.data || {};
@@ -651,33 +692,24 @@ exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
     case "nastavitDesignera": {
       if (!caller.isAdmin) throw new HttpsError("permission-denied", "Nastavení designérů smí měnit jen admin.");
       const slug = cut(data.slug, 100);
-      const r = data.reservations || {};
       const ref = db.collection("users").doc(slug);
-      if (!slug || !(await ref.get()).exists) throw new HttpsError("not-found", "Člověk neexistuje.");
-      const services = (await loadServices(db, { activeOnly: false })).map((s) => s.id);
-      const raynetUserId = r.raynetUserId === "" || r.raynetUserId == null ? null : Number(r.raynetUserId);
-      if (raynetUserId !== null && !Number.isInteger(raynetUserId)) throw new HttpsError("invalid-argument", "Raynet ID musí být číslo.");
-      const photoUrl = cut(r.photoUrl, 500);
-      if (photoUrl && !/^https:\/\//.test(photoUrl)) throw new HttpsError("invalid-argument", "Fotka musí být https:// odkaz.");
-      const regionIds = ((await loadConfig()).homeRegions || []).map((x) => x.id);
-      const reservations = {
-        enabled: r.enabled === true,
-        studios: (r.studios || []).filter((s) => STUDIOS.includes(s)),
-        homeRegions: (r.homeRegions || []).filter((s) => regionIds.includes(s)),
-        services: (r.services || []).filter((s) => services.includes(s)),
-        raynetUserId,
-        // Veřejný profil na /rezervovat/ (firma tlačí konkrétní designéry).
-        publicPosition: cut(r.publicPosition, 100),
-        bio: cut(r.bio, 400),
-        photoUrl,
-        // Vždy ve studiu (hlavní pracovní poměr) — směny podle otevírací doby.
-        permanentShift: STUDIOS.includes(r.permanentShift) ? r.permanentShift : null,
-        // Smí posouvat/rušit/potvrzovat rezervace všech (CX, vedení).
-        manageAll: r.manageAll === true,
-      };
+      const snap = await ref.get();
+      if (!slug || !snap.exists) throw new HttpsError("not-found", "Člověk neexistuje.");
+      const reservations = await buildReservations(db, data.reservations || {}, snap.data().reservations || {}, ALL_KEYS);
       // Jen pod-objekt `reservations` — nic jiného v users/{slug} se nemění.
       await ref.update({ reservations });
       return { slug, reservations };
+    }
+
+    // Designér si sám nastaví, kde a co dělá, a svůj veřejný profil. Co má
+    // dopad na ostatní (zapnutí, Raynet ID, stálá směna, správa všech), mění admin.
+    case "mojeNastaveni": {
+      const ref = db.collection("users").doc(caller.slug);
+      const snap = await ref.get();
+      if (!snap.exists) throw new HttpsError("not-found", "Profil neexistuje.");
+      const reservations = await buildReservations(db, data.reservations || {}, snap.data().reservations || {}, SELF_KEYS);
+      await ref.update({ reservations });
+      return { slug: caller.slug, reservations };
     }
 
     default:

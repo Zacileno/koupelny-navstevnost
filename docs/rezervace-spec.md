@@ -160,6 +160,7 @@
 - **Kalendář celého studia** (`/rezervace/studio.html`) + kalendáře jednotlivců. **Alert 2 měsíce dopředu**, když má být studio otevřené a nikdo nemá směnu (v appce; e-mailem až F2). Jinak si to designéři bookují sami.
 - **Dostupnost rušit nejde** — kdo nemůže přijít, volá Matoušovi (admin ji upraví). Výjimka: oprava překlepu do 30 minut od založení bloku.
 - **Posouvat a rušit schůzky jde** — každý spravuje svoje rezervace; všechny admin/HR a kdo má „Spravuje všechny rezervace“ (CX, vedení).
+- **Úrovně přístupu (doplněno 2026-11-05):** designér si sám nastaví služby, studia, oblasti návrhu doma a veřejný profil („Moje nastavení“). Jen admin: zapnutí rezervací, Raynet ID, stálá směna, správa všech rezervací. ⚠️ Rozdělení polí jde snadno posunout.
 - **Jedno číslo jako infolinka** — `config/rezervace.infolinePhone`, ukazuje se na `/rezervovat/`.
 - **Raynet:** rezervovaná schůzka = klient + adresa studia + obchodní případ (+ událost v kalendáři designéra).
 - **Export pro Matouše:** „Aktivita za měsíc“ v přehledu — počty schůzek po designérech + CSV detail (vč. ID obchodního případu). Poměr schůzka → obrat až ve F3 (obrat z OP v Raynetu).

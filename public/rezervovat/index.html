@@ -33,6 +33,18 @@
         .choice strong { display: block; font-size: 15px; }
         .choice small { color: var(--text-dim); display: block; margin-top: 3px; }
         .price { color: var(--gold); font-weight: 700; }
+        .designers { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+        .designer { display: flex; gap: 12px; align-items: flex-start; text-align: left; background: var(--surface); border: 2px solid var(--border); border-radius: 12px; padding: 12px; cursor: pointer; font-family: var(--font); color: var(--text); }
+        .designer:hover { border-color: var(--blue); }
+        .designer.selected { border-color: var(--blue); background: var(--blue-dim); }
+        .designer.disabled { opacity: .55; cursor: default; }
+        .avatar { flex: 0 0 56px; width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: var(--gold-dim); color: var(--gold); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; }
+        .designer strong { display: block; font-size: 15px; }
+        .designer small { display: block; color: var(--text-dim); font-size: 12px; }
+        .designer .next { color: var(--success); font-weight: 600; margin-top: 4px; }
+        .designer .bio { margin-top: 4px; }
+        .hero { display: flex; gap: 14px; align-items: center; margin-bottom: 20px; }
+        .hero .avatar { flex-basis: 72px; width: 72px; height: 72px; font-size: 22px; }
         .days { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 10px; }
         .day { flex: 0 0 auto; border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 7px 11px; cursor: pointer; font-family: var(--font); font-size: 13px; text-align: center; color: var(--text); }
         .day b { display: block; font-size: 16px; }
@@ -64,8 +76,8 @@
 <body>
 <div class="wrap">
     <header><img src="../logo.png" alt="Koupelny Syrový"></header>
-    <h1 id="title">Rezervace osobní konzultace</h1>
-    <p class="lead" id="lead">Vyberte si službu a termín, který vám vyhovuje.</p>
+    <h1 id="title">Rezervace u designéra</h1>
+    <p class="lead" id="lead">Vyberte si službu, svého designéra a termín, který vám vyhovuje.</p>
 
     <div id="app"><div class="step"><span class="spinner"></span>Načítám…</div></div>
 </div>
@@ -82,9 +94,12 @@ const DEMO = params.get('demo') === '1';
 const TZ = 'Europe/Prague';
 
 const state = {
-    services: [], studios: [], privacyUrl: '',
-    service: null, studio: params.get('studio') || null, designer: params.get('designer') || null,
-    designerInfo: null, slots: [], day: null, slot: null, fromDay: null,
+    services: [], studios: [], homeRegions: [], privacyUrl: '',
+    service: null,
+    place: params.get('studio') || params.get('oblast') || null, // studio (konzultace) nebo oblast (návrh doma)
+    designer: params.get('designer') || null,  // slug, nebo 'any' = kdokoliv volný
+    linkDesigner: null,                        // profil z přímého odkazu ?designer=
+    designers: [], slots: [], day: null, slot: null, fromDay: null, loading: false,
 };
 // UTM a klikové identifikátory pro měření kampaň → rezervace.
 const utm = {};
@@ -97,6 +112,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 const dayKey = (d) => new Date(d).toLocaleDateString('sv-SE', { timeZone: TZ });
 const fmtTime = (d) => new Date(d).toLocaleTimeString('cs-CZ', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
 const fmtLong = (d) => new Date(d).toLocaleString('cs-CZ', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+const fmtShort = (d) => new Date(d).toLocaleString('cs-CZ', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+const initials = (name) => String(name || '').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+const avatar = (d) => d.photoUrl ? `<img class="avatar" src="${esc(d.photoUrl)}" alt="">` : `<span class="avatar">${esc(initials(d.name))}</span>`;
 
 async function api(path, opts) {
     if (DEMO) return demoApi(path, opts);
@@ -106,91 +124,180 @@ async function api(path, opts) {
     return json;
 }
 
+const isHome = () => state.service?.type === 'home';
+const placeName = () => (isHome() ? state.homeRegions : state.studios).find(x => x.id === state.place)?.name || '';
+const chosenDesigner = () => state.designers.find(d => d.slug === state.designer) || (state.linkDesigner?.slug === state.designer ? state.linkDesigner : null);
+
+// Možnosti v kroku 1 a 2 — u přímého odkazu na designéra jen to, co vede on.
+function availableServices() {
+    const ld = state.linkDesigner;
+    return ld ? state.services.filter(s => ld.services.includes(s.id)) : state.services;
+}
+function availablePlaces() {
+    const ld = state.linkDesigner;
+    if (isHome()) return ld ? state.homeRegions.filter(r => ld.homeRegions.includes(r.id)) : state.homeRegions;
+    return ld ? state.studios.filter(x => ld.studios.includes(x.id)) : state.studios;
+}
+
 async function init() {
-    const data = await api('volneTerminy');
+    const q = state.designer && state.designer !== 'any' ? `?designer=${encodeURIComponent(state.designer)}` : '';
+    const data = await api(`volneTerminy${q}`);
     state.services = data.services;
     state.studios = data.studios;
+    state.homeRegions = data.homeRegions || [];
     state.privacyUrl = data.privacyUrl;
-    const pre = state.services.find(s => s.id === params.get('sluzba'));
-    if (pre) state.service = pre;
+    state.linkDesigner = data.designer || null;
+    if (state.designer && state.designer !== 'any' && !state.linkDesigner) state.designer = null; // neplatný odkaz → běžný výběr
+
+    if (state.linkDesigner) {
+        const d = state.linkDesigner;
+        $('title').textContent = 'Rezervace konzultace';
+        $('lead').innerHTML = '';
+        $('lead').insertAdjacentHTML('beforebegin', `<div class="hero">${avatar(d)}<div><strong>${esc(d.name)}</strong><br><span class="muted">${esc(d.position)}</span>${d.bio ? `<p class="muted" style="margin-top:4px">${esc(d.bio)}</p>` : ''}</div></div>`);
+    }
+    const services = availableServices();
+    state.service = services.find(s => s.id === params.get('sluzba')) || (services.length === 1 ? services[0] : null);
+    if (state.service) autoPlace();
     render();
-    if (state.service && (state.service.type !== 'studio' || state.studio)) loadSlots();
+    if (state.service && state.place) loadSlots();
+}
+
+// Jediná možnost (např. designér jen v jednom studiu) → vybrat rovnou.
+function autoPlace() {
+    const places = availablePlaces();
+    if (!places.some(p => p.id === state.place)) state.place = places.length === 1 ? places[0].id : null;
 }
 
 function render() {
     const s = state.service;
+    const services = availableServices();
+    let n = 0;
     let html = '';
-    html += `<div class="step"><h2>1. Služba</h2><div class="choices">${state.services.map(x => `
-        <button class="choice ${s?.id === x.id ? 'selected' : ''}" data-service="${x.id}">
-            <strong>${esc(x.name)}</strong>
-            <small>${x.durationMin} min · <span class="price">${esc(x.priceText)}</span></small>
-            ${x.description ? `<small>${esc(x.description)}</small>` : ''}
-        </button>`).join('')}</div></div>`;
-    if (s?.type === 'studio') {
-        html += `<div class="step"><h2>2. Studio</h2><div class="choices">${state.studios.map(x => `
-            <button class="choice ${state.studio === x.id ? 'selected' : ''}" data-studio="${x.id}">
-                <strong>${esc(x.name)}</strong>${x.address ? `<small>${esc(x.address)}</small>` : ''}
+    if (services.length > 1 || !s) {
+        html += `<div class="step"><h2>${++n}. Služba</h2><div class="choices">${services.map(x => `
+            <button class="choice ${s?.id === x.id ? 'selected' : ''}" data-service="${x.id}">
+                <strong>${esc(x.name)}</strong>
+                <small>${x.durationMin} min · <span class="price">${esc(x.priceText)}</span></small>
+                ${x.description ? `<small>${esc(x.description)}</small>` : ''}
             </button>`).join('')}</div></div>`;
     }
-    if (s && (s.type !== 'studio' || state.studio)) {
-        html += `<div class="step"><h2>${s.type === 'studio' ? '3' : '2'}. Termín${state.designerInfo ? ` · ${esc(state.designerInfo.name)}` : ''}</h2><div id="slots"><span class="spinner"></span>Hledám volné termíny…</div></div>`;
+    if (s) {
+        const places = availablePlaces();
+        html += `<div class="step"><h2>${++n}. ${isHome() ? 'Kde bydlíte?' : 'Studio'}</h2>
+            ${isHome() ? '<p class="muted" style="margin:-4px 0 10px">Nabídneme designéry, kteří k vám jezdí.</p>' : ''}
+            <div class="choices">${places.map(x => `
+            <button class="choice ${state.place === x.id ? 'selected' : ''}" data-place="${x.id}">
+                <strong>${esc(x.name)}</strong>${x.address ? `<small>${esc(x.address)}</small>` : ''}
+            </button>`).join('') || '<p class="muted">Tuto službu teď v žádné oblasti nenabízíme.</p>'}</div></div>`;
+    }
+    if (s && state.place) {
+        html += `<div class="step"><h2>${++n}. Designér</h2><div id="designers">${designersHtml()}</div></div>`;
+    }
+    if (s && state.place && state.designer) {
+        const d = chosenDesigner();
+        html += `<div class="step"><h2>${++n}. Termín${d ? ` · ${esc(d.name)}` : ''}</h2><div id="slots"><span class="spinner"></span>Hledám volné termíny…</div></div>`;
     }
     if (state.slot) {
-        const home = s.type === 'home';
+        const d = chosenDesigner();
         html += `<div class="step" id="formStep"><h2>Vaše údaje</h2>
-            <div class="summary">${esc(s.name)} · <strong>${esc(fmtLong(state.slot))}</strong>${s.type === 'studio' ? ` · ${esc(state.studios.find(x => x.id === state.studio)?.name)}` : ''}</div>
+            <div class="summary">${esc(s.name)} · <strong>${esc(fmtLong(state.slot))}</strong> · ${esc(placeName())}${d ? ` · ${esc(d.name)}` : ''}</div>
             <form id="form" novalidate>
                 <div class="row2">
                     <div><label for="name">Jméno a příjmení *</label><input id="name" autocomplete="name" required></div>
                     <div><label for="phone">Telefon *</label><input id="phone" type="tel" autocomplete="tel" required placeholder="777 123 456"></div>
                 </div>
                 <label for="email">E-mail</label><input id="email" type="email" autocomplete="email">
-                ${home ? '<label for="address">Adresa, kam přijedeme *</label><input id="address" autocomplete="street-address" required>' : ''}
+                ${isHome() ? '<label for="address">Adresa, kam přijedeme *</label><input id="address" autocomplete="street-address" required>' : ''}
                 <label for="note">Poznámka (co plánujete)</label><textarea id="note" rows="3"></textarea>
                 <div class="hp" aria-hidden="true"><label for="web">Web</label><input id="web" tabindex="-1" autocomplete="off"></div>
-                ${home && s.requiresConfirmation ? `<p class="muted" style="margin-top:12px">Návrh u vás doma stojí ${esc(s.priceText)}. Po odeslání vám zavoláme, domluvíme detaily a pošleme zálohovou fakturu — termín potvrdíme po její úhradě.</p>` : ''}
+                ${isHome() && s.requiresConfirmation ? `<p class="muted" style="margin-top:12px">Návrh u vás doma stojí ${esc(s.priceText)}. Po odeslání vám zavoláme, domluvíme detaily a pošleme zálohovou fakturu — termín potvrdíme po její úhradě.</p>` : ''}
                 <p class="muted" style="margin-top:10px">Odesláním souhlasíte se zpracováním údajů za účelem domluvy schůzky${state.privacyUrl ? ` (<a href="${esc(state.privacyUrl)}" target="_blank" rel="noopener">zásady</a>)` : ''}.</p>
-                <button class="btn" type="submit" id="submit">${home && s.requiresConfirmation ? 'Odeslat žádost o termín' : 'Rezervovat termín'}</button>
+                <button class="btn" type="submit" id="submit">${isHome() && s.requiresConfirmation ? 'Odeslat žádost o termín' : 'Rezervovat termín'}</button>
                 <p class="error" id="formErr"></p>
             </form></div>`;
     }
     $('app').innerHTML = html;
     $('app').querySelectorAll('[data-service]').forEach(b => b.addEventListener('click', () => {
         state.service = state.services.find(x => x.id === b.dataset.service);
-        state.slot = null; state.slots = []; state.day = null; state.fromDay = null;
+        resetFrom('service');
+        autoPlace();
         render();
-        if (state.service.type !== 'studio' || state.studio) loadSlots();
+        if (state.place) loadSlots();
     }));
-    $('app').querySelectorAll('[data-studio]').forEach(b => b.addEventListener('click', () => {
-        state.studio = b.dataset.studio; state.slot = null; state.day = null; state.fromDay = null;
+    $('app').querySelectorAll('[data-place]').forEach(b => b.addEventListener('click', () => {
+        state.place = b.dataset.place;
+        resetFrom('place');
         render(); loadSlots();
     }));
-    if (s && (s.type !== 'studio' || state.studio) && state.slots.length) renderSlots();
+    bindDesigners();
+    if (state.designer && state.slots.length) renderSlots();
     $('form')?.addEventListener('submit', submit);
+}
+
+function resetFrom(step) {
+    state.slot = null; state.slots = []; state.day = null; state.fromDay = null;
+    if (step === 'service' || step === 'place') {
+        state.designers = [];
+        // Přímý odkaz drží designéra, dokud ho klient sám nezmění.
+        if (!state.linkDesigner || state.designer !== state.linkDesigner.slug) state.designer = null;
+    }
+}
+
+function designersHtml() {
+    if (state.loading && !state.designers.length) return '<span class="spinner"></span>Načítám designéry…';
+    const list = state.linkDesigner && state.designer === state.linkDesigner.slug
+        ? state.designers.filter(d => d.slug === state.designer)
+        : state.designers;
+    if (!list.length) return '<p class="muted">Pro tuto volbu teď nemáme volného designéra. Zavolejte nám prosím, termín domluvíme.</p>';
+    const card = (d) => `<button class="designer ${state.designer === d.slug ? 'selected' : ''} ${d.nextSlot ? '' : 'disabled'}" data-designer="${d.slug}" ${d.nextSlot ? '' : 'disabled'}>
+        ${avatar(d)}<div><strong>${esc(d.name)}</strong>${d.position ? `<small>${esc(d.position)}</small>` : ''}
+        ${d.bio ? `<small class="bio">${esc(d.bio)}</small>` : ''}
+        <small class="${d.nextSlot ? 'next' : ''}">${d.nextSlot ? `Nejbližší volno: ${esc(fmtShort(d.nextSlot))}` : 'V nejbližších týdnech plno'}</small></div></button>`;
+    const anyFree = state.designers.some(d => d.nextSlot);
+    const any = list.length > 1 && anyFree ? `<button class="designer ${state.designer === 'any' ? 'selected' : ''}" data-designer="any">
+        <span class="avatar">★</span><div><strong>Kdokoliv</strong><small>Nejbližší volný termín u kteréhokoliv designéra</small></div></button>` : '';
+    const change = state.linkDesigner && state.designer === state.linkDesigner.slug && state.designers.length > 1
+        ? '<p style="margin-top:10px"><button class="link" id="otherDesigner">Vybrat jiného designéra</button></p>' : '';
+    return `<div class="designers">${list.map(card).join('')}${any}</div>${change}`;
+}
+
+function bindDesigners() {
+    $('app').querySelectorAll('[data-designer]').forEach(b => b.addEventListener('click', () => {
+        if (b.disabled) return;
+        state.designer = b.dataset.designer;
+        state.slot = null; state.day = null; state.fromDay = null;
+        render(); loadSlots();
+    }));
+    // Z odkazu na designéra jde přejít k běžnému výběru (ostatní designéři pro stejné místo).
+    $('otherDesigner')?.addEventListener('click', () => { state.linkDesigner = null; state.designer = null; state.slot = null; render(); });
 }
 
 async function loadSlots() {
     const q = new URLSearchParams({ sluzba: state.service.id });
-    if (state.service.type === 'studio') q.set('studio', state.studio);
-    if (state.designer) q.set('designer', state.designer);
+    q.set(isHome() ? 'oblast' : 'studio', state.place);
+    if (state.designer && state.designer !== 'any') q.set('designer', state.designer);
     if (state.fromDay) q.set('od', state.fromDay);
+    state.loading = true;
     try {
         const data = await api(`volneTerminy?${q}`);
+        // Seznam designérů (s nejbližším volnem) držíme z prvního, neposunutého dotazu.
+        if (!state.fromDay || !state.designers.length) state.designers = data.designers;
         state.slots = data.slots;
-        state.designerInfo = data.designer;
         if (!state.day || !state.slots.some(t => dayKey(t) === state.day)) state.day = state.slots.length ? dayKey(state.slots[0]) : null;
-        render();
-        renderSlots();
     } catch (err) {
-        $('slots').innerHTML = `<p class="error">${esc(err.message)}</p>`;
+        state.loading = false;
+        ($('slots') || $('designers')).innerHTML = `<p class="error">${esc(err.message)}</p>`;
+        return;
     }
+    state.loading = false;
+    render();
 }
 
 function renderSlots() {
     const box = $('slots');
     if (!box) return;
     if (!state.slots.length) {
-        box.innerHTML = `<p class="muted">V nejbližších dnech bohužel nemáme volný termín.${state.fromDay ? '' : ' Zkuste to prosím později, nebo nám zavolejte.'}</p>
+        box.innerHTML = `<p class="muted">V nejbližších dnech bohužel nemáme volný termín.${state.fromDay ? '' : ' Zkuste jiného designéra, nebo nám zavolejte.'}</p>
             ${state.fromDay ? '<button class="link" id="back">← Zpět na nejbližší termíny</button>' : ''}`;
         $('back')?.addEventListener('click', () => { state.fromDay = null; loadSlots(); });
         return;
@@ -235,7 +342,9 @@ async function submit(e) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                sluzba: state.service.id, studio: state.studio, designer: state.designer, start: state.slot,
+                sluzba: state.service.id, start: state.slot,
+                studio: isHome() ? null : state.place, oblast: isHome() ? state.place : null,
+                designer: state.designer !== 'any' ? state.designer : null,
                 name: val('name'), phone: val('phone'), email: val('email'), address: val('address'), note: val('note'),
                 web: val('web'), utm, sourceUrl: location.href,
             }),
@@ -254,35 +363,47 @@ function done(res) {
     $('lead').textContent = '';
     $('app').innerHTML = `<div class="step done"><div class="ok">✓</div>
         <p style="font-size:17px;font-weight:600;margin:8px 0">${esc(state.service.name)}</p>
-        <p>${esc(fmtLong(res.start || state.slot))}${state.service.type === 'studio' ? ` · studio ${esc(state.studios.find(x => x.id === state.studio)?.name)}` : ''}</p>
+        <p>${esc(fmtLong(res.start || state.slot))} · ${esc(isHome() ? placeName() : `studio ${placeName()}`)}</p>
+        ${res.designerName ? `<p style="margin-top:4px">Designér: <strong>${esc(res.designerName)}</strong></p>` : ''}
         <p class="muted" style="margin-top:12px">${requested
             ? 'Brzy vám zavoláme, domluvíme detaily a pošleme zálohovou fakturu. Termín je pro vás předběžně držený.'
             : 'Kdyby vám termín nevyhovoval, dejte nám prosím vědět telefonicky.'}</p></div>`;
 }
 
 // ── demo (?demo=1): bez sítě ──
+const DEMO_DESIGNERS = [
+    { slug: 'jana-dvorakova', name: 'Jana Dvořáková', position: 'Designérka koupelen', bio: 'Specializuje se na malé panelákové koupelny.', photoUrl: '', studios: ['praha'], homeRegions: ['praha'], services: ['konzultace-studio', 'navrh-doma'] },
+    { slug: 'marek-novak', name: 'Marek Novák', position: 'Projektový specialista', bio: '', photoUrl: '', studios: ['praha', 'brno'], homeRegions: ['brno'], services: ['konzultace-studio', 'navrh-doma'] },
+];
 function demoApi(path, opts) {
-    if (path === 'volneTerminy') {
+    const q = new URLSearchParams(path.split('?')[1] || '');
+    if (!q.has('sluzba') && path.startsWith('volneTerminy')) {
+        const d = DEMO_DESIGNERS.find(x => x.slug === q.get('designer'));
         return {
-            ok: true, privacyUrl: '',
+            ok: true, privacyUrl: '', designer: d || null,
             services: [
                 { id: 'konzultace-studio', name: 'Konzultace ve studiu', type: 'studio', durationMin: 60, priceText: 'zdarma', requiresConfirmation: false, description: 'Osobní konzultace s designérem v našem studiu.' },
                 { id: 'navrh-doma', name: 'Návrh u vás doma', type: 'home', durationMin: 120, priceText: '4 990 Kč vč. DPH', requiresConfirmation: true, description: 'Designér přijede k vám a navrhne koupelnu na místě.' },
             ],
             studios: [{ id: 'praha', name: 'Praha', address: '' }, { id: 'brno', name: 'Brno', address: '' }, { id: 'hradec', name: 'Hradec Králové', address: '' }, { id: 'pardubice', name: 'Pardubice', address: '' }],
+            homeRegions: [{ id: 'praha', name: 'Praha a Střední Čechy' }, { id: 'brno', name: 'Brno a Jižní Morava' }, { id: 'hradec', name: 'Hradec Králové a okolí' }, { id: 'pardubice', name: 'Pardubice a okolí' }],
         };
     }
     if (path.startsWith('volneTerminy')) {
+        const home = q.get('sluzba') === 'navrh-doma';
+        const place = q.get(home ? 'oblast' : 'studio');
+        const eligible = DEMO_DESIGNERS.filter(d => (home ? d.homeRegions : d.studios).includes(place));
         const slots = [];
         const base = new Date(); base.setHours(0, 0, 0, 0);
-        for (let i = 1; i < 10; i++) for (const h of [9, 10, 11, 14, 15]) {
+        for (let i = home ? 2 : 1; i < 12; i++) for (const h of [9, 10, 11, 14, 15]) {
             const d = new Date(base.getTime() + i * 864e5); d.setHours(h);
             if (d.getDay() % 6) slots.push(d.toISOString());
         }
-        return { ok: true, slots, designer: null };
+        const designers = eligible.map((d, i) => ({ ...d, nextSlot: slots[i * 3] || null }));
+        return { ok: true, designers, designer: designers.find(d => d.slug === q.get('designer')) || null, slots: eligible.length ? slots : [] };
     }
     const body = JSON.parse(opts.body);
-    return { ok: true, id: 'demo', status: body.sluzba === 'navrh-doma' ? 'requested' : 'confirmed', start: body.start };
+    return { ok: true, id: 'demo', status: body.sluzba === 'navrh-doma' ? 'requested' : 'confirmed', start: body.start, designerName: DEMO_DESIGNERS.find(d => d.slug === body.designer)?.name || DEMO_DESIGNERS[0].name };
 }
 
 init().catch(err => { $('app').innerHTML = `<div class="step"><p class="error">${esc(err.message)}</p><p class="muted">Zavolejte nám prosím, rádi termín domluvíme po telefonu.</p></div>`; });

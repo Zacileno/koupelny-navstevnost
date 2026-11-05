@@ -72,6 +72,13 @@ const CONFIG = {
     hradec: { name: 'Hradec Králové', address: '', openingHours: {} },
     pardubice: { name: 'Pardubice', address: '', openingHours: {} },
   },
+  // ⚠️ oblasti pro návrh doma — designér má users/{slug}.reservations.homeRegions
+  homeRegions: [
+    { id: 'praha', name: 'Praha a Střední Čechy' },
+    { id: 'brno', name: 'Brno a Jižní Morava' },
+    { id: 'hradec', name: 'Hradec Králové a okolí' },
+    { id: 'pardubice', name: 'Pardubice a okolí' },
+  ],
   bulkEmail: '',
   alertRecipients: [],
   privacyUrl: '',
@@ -98,7 +105,12 @@ async function seedDemo() {
   const { fromPrague, pragueParts, nextDay, isWorkingDay } = require('../functions/shared/cas');
   await db.collection('users').doc('demo-designer').set({
     name: 'Demo Designérka', active: true, department: 'sales', studios: ['praha'], email: 'demo@example.test',
-    platformRole: 'admin', reservations: { enabled: true, studios: ['praha'], services: Object.keys(SERVICES), raynetUserId: 1 },
+    platformRole: 'admin', reservations: { enabled: true, studios: ['praha'], homeRegions: ['praha'], services: Object.keys(SERVICES), raynetUserId: 1, bio: 'Malé koupelny v panelácích.' },
+  }, { merge: true });
+  // Druhý designér v Brně — ověření, že návrh doma v Brně nenabídne Pražáka.
+  await db.collection('users').doc('demo-brno').set({
+    name: 'Demo Brňák', active: true, department: 'sales', studios: ['brno'], email: 'brno@example.test',
+    reservations: { enabled: true, studios: ['brno'], homeRegions: ['brno'], services: Object.keys(SERVICES), raynetUserId: 2 },
   }, { merge: true });
   let { y, m, d } = pragueParts(new Date());
   for (let i = 0; i < 14; i++) {
@@ -112,11 +124,15 @@ async function seedDemo() {
         designerSlug: 'demo-designer', serviceType: 'home',
         start: Timestamp.fromDate(fromPrague(y, m, d, 14 * 60)), end: Timestamp.fromDate(fromPrague(y, m, d, 18 * 60)), createdBy: 'seed',
       });
+      await db.collection('res_availability').doc(`demo-brno-home-${key}`).set({
+        designerSlug: 'demo-brno', serviceType: 'home',
+        start: Timestamp.fromDate(fromPrague(y, m, d, 8 * 60)), end: Timestamp.fromDate(fromPrague(y, m, d, 12 * 60)), createdBy: 'seed',
+      });
     }
     ({ y, m, d } = nextDay(y, m, d));
   }
   await db.collection('config').doc('raynet').set({ mock: true });
-  console.log('  + demo designér, bloky na 14 dní, config/raynet {mock:true}');
+  console.log('  + demo designéři (Praha, Brno), bloky na 14 dní, config/raynet {mock:true}');
 }
 
 async function main() {

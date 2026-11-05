@@ -9,6 +9,12 @@ export const TZ = 'Europe/Prague';
 
 export const STUDIO_LABELS = { praha: 'Praha', brno: 'Brno', hradec: 'Hradec Králové', pardubice: 'Pardubice' };
 export const STUDIOS = Object.keys(STUDIO_LABELS);
+// Oblasti pro návrh doma — výchozí, přepisuje config/rezervace.homeRegions
+// (stejné jako DEFAULT_HOME_REGIONS ve functions/rezervace/designeri.js).
+export const DEFAULT_HOME_REGIONS = [
+    { id: 'praha', name: 'Praha a Střední Čechy' }, { id: 'brno', name: 'Brno a Jižní Morava' },
+    { id: 'hradec', name: 'Hradec Králové a okolí' }, { id: 'pardubice', name: 'Pardubice a okolí' },
+];
 export const TYPE_LABELS = { studio: 'Ve studiu', home: 'U klienta doma' };
 export const STATUS_LABELS = {
     requested: 'Čeká na potvrzení',
@@ -147,7 +153,7 @@ export function demoBookings() {
           utm: { source: 'google', campaign: 'Rezervace_Praha' }, history: [{ at: new Date(demoNow - 2 * H), by: 'web', action: 'created', note: '' }] },
         { ...base, id: 'b2', serviceId: 'navrh-doma', serviceName: 'Návrh u vás doma', serviceType: 'home', designerSlug: 'demo', studio: null,
           start: demoAt(2, 14), end: demoAt(2, 16), status: 'requested', client: { name: 'Petr Svoboda', phone: '+420602333444', email: '' },
-          address: 'Vinohradská 12, Praha 2', raynet: { state: 'waiting' }, history: [{ at: new Date(demoNow - 5 * H), by: 'web', action: 'created', note: '' }] },
+          address: 'Vinohradská 12, Praha 2', region: 'praha', raynet: { state: 'waiting' }, history: [{ at: new Date(demoNow - 5 * H), by: 'web', action: 'created', note: '' }] },
         { ...base, id: 'b3', serviceId: 'konzultace-studio', serviceName: 'Konzultace ve studiu', serviceType: 'studio', designerSlug: 'marek-kopriva', studio: 'praha',
           start: demoAt(3, 11), end: demoAt(3, 12), status: 'confirmed', source: 'phone', client: { name: 'Eva Malá', phone: '+420731555666', email: '' },
           raynet: { state: 'ok', eventId: '2', movedInRaynet: { start: demoAt(3, 13), end: demoAt(3, 14) } } },

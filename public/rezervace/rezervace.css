@@ -73,3 +73,5 @@ table.tbl th { text-align: left; font-size: 11px; color: var(--text-dim); text-t
 table.tbl td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.tbl input[type="number"], table.tbl input[type="text"] { width: 100%; min-width: 64px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 5px 7px; font-family: var(--font); font-size: 12px; }
 .table-wrap { overflow-x: auto; }
+table.tbl tr[data-profile] td { border-top: none; padding-top: 0; }
+table.tbl tr[data-profile] input[type="text"] { width: 100%; }

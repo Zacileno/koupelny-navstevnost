@@ -53,11 +53,12 @@
 
 <script type="module">
 import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
-import { DEMO, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES } from './rezervace-common.js';
+import { DEMO, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS } from './rezervace-common.js';
 
 const { collection, getDocs, getDoc, doc, setDoc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
 
 const DAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+const homeRegions = () => config.homeRegions?.length ? config.homeRegions : DEFAULT_HOME_REGIONS;
 const DEFAULT_RAYNET = { busyEntities: ['event', 'meeting'], writeEntity: 'event', cancelMode: 'delete', createContact: true, liveCheck: true };
 
 let db = null;
@@ -128,28 +129,45 @@ function renderDesigners() {
     const list = Object.entries(users)
         .filter(([, u]) => u.active !== false && !u.external && (u.reservations || ['sales', 'realization'].includes(u.department)))
         .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'cs'));
-    $('designersTbl').innerHTML = `<tr><th>Člověk</th><th>Rezervace</th><th>Studia</th><th>Služby</th><th>Raynet ID</th><th></th></tr>` +
+    $('designersTbl').innerHTML = `<tr><th>Člověk</th><th>Rezervace</th><th>Studia (konzultace)</th><th>Oblasti (návrh doma)</th><th>Služby</th><th>Raynet ID</th><th></th></tr>` +
         list.map(([slug, u]) => {
             const r = u.reservations || {};
+            // Bez vyplněných oblastí jezdí designér tam, kde má studia (stejně jako ve functions).
+            const regions = Array.isArray(r.homeRegions) ? r.homeRegions : (r.studios || []);
             return `<tr data-slug="${slug}">
                 <td>${escapeHtml(u.name || slug)}<br><span class="hint">${escapeHtml(u.position || '')}</span></td>
                 <td><input type="checkbox" data-enabled ${r.enabled ? 'checked' : ''}></td>
-                <td class="check-list">${Object.entries(STUDIO_LABELS).map(([k, v]) => `<label><input type="checkbox" data-studio="${k}" ${(r.studios || []).includes(k) ? 'checked' : ''}>${v}</label>`).join('')}</td>
-                <td class="check-list">${services.map(s => `<label><input type="checkbox" data-service="${s.id}" ${(r.services || []).includes(s.id) ? 'checked' : ''}>${escapeHtml(s.name)}</label>`).join('')}</td>
+                <td><div class="check-list">${Object.entries(STUDIO_LABELS).map(([k, v]) => `<label><input type="checkbox" data-studio="${k}" ${(r.studios || []).includes(k) ? 'checked' : ''}>${v}</label>`).join('')}</div></td>
+                <td><div class="check-list">${homeRegions().map(x => `<label><input type="checkbox" data-region="${x.id}" ${regions.includes(x.id) ? 'checked' : ''}>${escapeHtml(x.name)}</label>`).join('')}</div></td>
+                <td><div class="check-list">${services.map(s => `<label><input type="checkbox" data-service="${s.id}" ${(r.services || []).includes(s.id) ? 'checked' : ''}>${escapeHtml(s.name)}</label>`).join('')}</div></td>
                 <td style="width:90px"><input type="text" inputmode="numeric" data-raynet value="${escapeHtml(r.raynetUserId ?? '')}"></td>
                 <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td>
-            </tr>`;
+            </tr>
+            <tr data-profile="${slug}"><td></td><td colspan="6">
+                <div class="row2" style="gap:8px">
+                    <input type="text" data-f="publicPosition" placeholder="Pozice na webu (výchozí: ${escapeHtml(u.position || '—')})" value="${escapeHtml(r.publicPosition || '')}">
+                    <input type="text" data-f="photoUrl" placeholder="Fotka — https:// odkaz" value="${escapeHtml(r.photoUrl || '')}">
+                </div>
+                <input type="text" data-f="bio" style="margin-top:6px" maxlength="400" placeholder="Krátké představení pro klienty (na co se specializuje)" value="${escapeHtml(r.bio || '')}">
+                <span class="hint">Přímý odkaz: <code>/rezervovat/?designer=${escapeHtml(slug)}</code></span>
+            </td></tr>`;
         }).join('');
     $('designersTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveDesigner(btn)));
 }
 
 async function saveDesigner(btn) {
     const tr = btn.closest('tr');
+    const profile = $('designersTbl').querySelector(`[data-profile="${tr.dataset.slug}"]`);
+    const f = (k) => profile.querySelector(`[data-f="${k}"]`).value.trim();
     const reservations = {
         enabled: tr.querySelector('[data-enabled]').checked,
         studios: [...tr.querySelectorAll('[data-studio]:checked')].map(e => e.dataset.studio),
+        homeRegions: [...tr.querySelectorAll('[data-region]:checked')].map(e => e.dataset.region),
         services: [...tr.querySelectorAll('[data-service]:checked')].map(e => e.dataset.service),
         raynetUserId: tr.querySelector('[data-raynet]').value.trim(),
+        publicPosition: f('publicPosition'),
+        photoUrl: f('photoUrl'),
+        bio: f('bio'),
     };
     btn.disabled = true;
     try {

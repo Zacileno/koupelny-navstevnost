@@ -51,14 +51,16 @@
 import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
 import {
     DEMO, akce, STUDIO_LABELS, STATUS_LABELS, SOURCE_LABELS, escapeHtml, toDate, fmtDateTime, fmtTime, fmtDay,
-    formatPhone, raynetChip, dateKey, addDaysKey, pragueToDate,
+    formatPhone, raynetChip, dateKey, addDaysKey, pragueToDate, DEFAULT_HOME_REGIONS,
     DEMO_USERS, DEMO_SERVICES, demoBookings,
 } from './rezervace-common.js';
 
-const { collection, query, where, orderBy, onSnapshot, getDocs, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
+const { collection, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
 
 let db = null, me = null;
 let users = {}, services = [], bookings = [];
+let homeRegions = DEFAULT_HOME_REGIONS;
+const regionName = (id) => homeRegions.find(r => r.id === id)?.name || id || '';
 let info = { raynetConfigured: false, isAdmin: false };
 let unsub = null;
 let openId = null;
@@ -76,7 +78,8 @@ async function init() {
         $('userName').textContent = session.profile?.name ?? session.user.email;
         $('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
         ({ db } = await initFirebase());
-        const [uSnap, sSnap] = await Promise.all([getDocs(collection(db, 'users')), getDocs(collection(db, 'res_services'))]);
+        const [uSnap, sSnap, cSnap] = await Promise.all([getDocs(collection(db, 'users')), getDocs(collection(db, 'res_services')), getDoc(doc(db, 'config', 'rezervace'))]);
+        if (cSnap.exists() && cSnap.data().homeRegions?.length) homeRegions = cSnap.data().homeRegions;
         users = Object.fromEntries(uSnap.docs.map(d => [d.id, d.data()]));
         services = sSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
     }
@@ -172,7 +175,7 @@ function renderDetail() {
         <dl class="info-grid">
             <dt>Kdy</dt><dd>${escapeHtml(fmtDateTime(b.start))}–${fmtTime(b.end)}</dd>
             <dt>Designér</dt><dd>${escapeHtml(userName(b.designerSlug))}</dd>
-            <dt>Kde</dt><dd>${escapeHtml(b.serviceType === 'home' ? b.address : (STUDIO_LABELS[b.studio] || ''))}</dd>
+            <dt>Kde</dt><dd>${escapeHtml(b.serviceType === 'home' ? `${b.address}${b.region ? ` (${regionName(b.region)})` : ''}` : (STUDIO_LABELS[b.studio] || ''))}</dd>
         </dl>
         <h3>Klient</h3>
         <dl class="info-grid">
@@ -201,7 +204,7 @@ function renderDetail() {
 
 async function act(b, action, btn) {
     const note = $('aNote').value.trim();
-    if (action === 'presunout') { renderSlotPicker($('moveBox'), b.serviceId, b.studio, b.designerSlug, (slot, ignoreLead) => doMove(b, slot, ignoreLead)); return; }
+    if (action === 'presunout') { renderSlotPicker($('moveBox'), b.serviceId, { studio: b.studio, region: b.region }, b.designerSlug, (slot, ignoreLead) => doMove(b, slot, ignoreLead)); return; }
     if (action === 'zrusit' && !confirm('Opravdu zrušit? Klient se o tom zatím automaticky nedozví (notifikace přijdou ve fázi 2).')) return;
     btn.disabled = true;
     try {
@@ -227,7 +230,8 @@ async function doMove(b, slot, ignoreLead) {
 
 // Výběr volného termínu přes funkci (stejná slotovací logika jako web).
 // Interní uživatel smí přebít minimální předstih — s varováním.
-function renderSlotPicker(box, serviceId, studio, designerSlug, onPick) {
+// place = { studio } u konzultace, { region } u návrhu doma (jen designéři z oblasti).
+function renderSlotPicker(box, serviceId, place, designerSlug, onPick) {
     const today = dateKey(new Date());
     box.innerHTML = `
         <div class="row2" style="margin-top:12px">
@@ -246,7 +250,7 @@ function renderSlotPicker(box, serviceId, studio, designerSlug, onPick) {
         try {
             const from = pragueToDate($('sFrom').value || today);
             const { slots } = await akce('sloty', {
-                serviceId, studio, designerSlug: $('sDesigner').value || null,
+                serviceId, studio: place.studio || null, region: place.region || null, designerSlug: $('sDesigner').value || null,
                 from: new Date(Math.max(from.getTime(), Date.now())).toISOString(),
                 to: pragueToDate(addDaysKey($('sFrom').value || today, 14)).toISOString(),
                 ignoreLead: $('sIgnore').checked,
@@ -279,6 +283,7 @@ function openNew() {
         <div class="row2" style="margin-top:12px">
             <div class="form-group"><label>Služba</label><select id="nService">${services.filter(s => s.active !== false).map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select></div>
             <div class="form-group" id="nStudioWrap"><label>Studio</label><select id="nStudio">${Object.entries(STUDIO_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+            <div class="form-group hidden" id="nRegionWrap"><label>Oblast klienta</label><select id="nRegion">${homeRegions.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')}</select></div>
         </div>
         <div class="row2">
             <div class="form-group"><label>Jméno a příjmení *</label><input id="nName" type="text"></div>
@@ -297,11 +302,12 @@ function openNew() {
     const refresh = () => {
         const s = services.find(x => x.id === $('nService').value);
         $('nStudioWrap').classList.toggle('hidden', s?.type !== 'studio');
+        $('nRegionWrap').classList.toggle('hidden', s?.type !== 'home');
         $('nAddrWrap').classList.toggle('hidden', s?.type !== 'home');
         $('nStatusWrap').classList.toggle('hidden', !s?.requiresConfirmation);
-        renderSlotPicker($('nSlots'), s.id, s.type === 'studio' ? $('nStudio').value : null, null, createNew);
+        renderSlotPicker($('nSlots'), s.id, s.type === 'studio' ? { studio: $('nStudio').value } : { region: $('nRegion').value }, null, createNew);
     };
-    ['nService', 'nStudio'].forEach(id => $(id).addEventListener('change', refresh));
+    ['nService', 'nStudio', 'nRegion'].forEach(id => $(id).addEventListener('change', refresh));
     refresh();
     $('modal').classList.add('open');
 }
@@ -310,7 +316,7 @@ async function createNew(slot, ignoreLead) {
     const s = services.find(x => x.id === $('nService').value);
     try {
         const res = await akce('vytvorit', {
-            serviceId: s.id, studio: s.type === 'studio' ? $('nStudio').value : null,
+            serviceId: s.id, studio: s.type === 'studio' ? $('nStudio').value : null, region: s.type === 'home' ? $('nRegion').value : null,
             designerSlug: slot.designerSlug, start: slot.start, ignoreLead,
             name: $('nName').value, phone: $('nPhone').value, email: $('nEmail').value,
             address: $('nAddress').value, note: $('nNote').value, source: $('nSource').value,

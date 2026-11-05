@@ -20,6 +20,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
 const { computeSlots, BLOCKING_STATUSES, overlaps, horizonEnd } = require("./sloty");
 const { getRaynet, EXT_ID_PREFIX } = require("./raynet");
+const { DEFAULT_HOME_REGIONS, eligibleDesigners, publicProfile, homeRegionsOf } = require("./designeri");
 const { pragueDateKey, fromPrague, TZ } = require("../shared/cas");
 const { normalizePhone, isEmail } = require("../leady")._internal;
 
@@ -35,6 +36,7 @@ const MAX_FIELD_LEN = 2000;
 // rezervace/nastaveni.html). Body ⚠️ ze specu jsou tady, ne natvrdo v logice.
 const DEFAULT_CONFIG = {
   studios: Object.fromEntries(STUDIOS.map((s) => [s, { name: STUDIO_NAMES[s], address: "", openingHours: {} }])),
+  homeRegions: DEFAULT_HOME_REGIONS, // ⚠️ oblasti pro návrh doma (designér má reservations.homeRegions)
   bulkEmail: "",            // ⚠️ hromadný rezervační e-mail (F2)
   alertRecipients: [],      // ⚠️ komu chodí alert "prázdný kalendář" (F2)
   privacyUrl: "",           // ⚠️ odkaz na zásady zpracování osobních údajů
@@ -88,14 +90,8 @@ async function loadService(db, id) {
 async function loadDesigners(db) {
   const snap = await db.collection("users").where("reservations.enabled", "==", true).get();
   return snap.docs
-    .map((d) => ({ slug: d.id, name: d.data().name, active: d.data().active, reservations: d.data().reservations || {} }))
+    .map((d) => ({ slug: d.id, name: d.data().name, position: d.data().position, active: d.data().active, reservations: d.data().reservations || {} }))
     .filter((u) => u.active !== false);
-}
-
-function eligibleDesigners(designers, service, studio) {
-  return designers.filter((d) =>
-    (d.reservations.services || []).includes(service.id) &&
-    (service.type !== "studio" || (d.reservations.studios || []).includes(studio)));
 }
 
 // Bloky/rezervace se načítají jedním rozsahovým dotazem podle začátku (bez
@@ -121,8 +117,8 @@ async function loadBusy(db, slugs) {
   return Object.fromEntries(snaps.filter((s) => s.exists).map((s) => [s.id, s.data().intervals || []]));
 }
 
-async function slotContext(db, { service, studio, designer, from, to, cfg }) {
-  const designers = eligibleDesigners(await loadDesigners(db), service, studio)
+async function slotContext(db, { service, studio, region, designer, from, to, cfg }) {
+  const designers = eligibleDesigners(await loadDesigners(db), service, { studio, region })
     .filter((d) => !designer || d.slug === designer);
   const slugs = designers.map((d) => d.slug);
   const [availability, bookings, busy] = await Promise.all([
@@ -166,6 +162,15 @@ function validateStudio(service, studio) {
   if (service.type !== "studio") return null;
   if (!STUDIOS.includes(studio)) throw new HttpsError("invalid-argument", "Vyberte prosím studio.");
   return studio;
+}
+
+// Návrh doma: oblast, kde klient bydlí — podle ní se nabízí jen designéři,
+// kteří tam jezdí. `required: false` jen pro interní výpis slotů (všechny oblasti).
+function validateRegion(service, region, cfg, { required = true } = {}) {
+  if (service.type !== "home") return null;
+  if (!region && !required) return null;
+  if (!(cfg.homeRegions || []).some((r) => r.id === region)) throw new HttpsError("invalid-argument", "Vyberte prosím oblast, kde bydlíte.");
+  return region;
 }
 
 // ── zápis rezervace (transakce se zámkem designér+den) ──────────────────────
@@ -224,6 +229,7 @@ async function createBooking(input, { source, actor, internal }) {
   const cfg = await loadConfig();
   const service = await loadService(db, input.serviceId);
   const studio = validateStudio(service, input.studio);
+  const region = validateRegion(service, input.region, cfg);
   const start = validateStart(input.start);
   const end = new Date(start.getTime() + service.durationMin * MIN_MS);
   const { client, address, note } = validateClient(input, service);
@@ -238,7 +244,7 @@ async function createBooking(input, { source, actor, internal }) {
   }
 
   const { designers, params } = await slotContext(db, {
-    service, studio, designer: input.designerSlug || null,
+    service, studio, region, designer: input.designerSlug || null,
     from: start.getTime(), to: start.getTime() + 1, cfg,
   });
   const now = new Date();
@@ -267,6 +273,7 @@ async function createBooking(input, { source, actor, internal }) {
       serviceType: service.type,
       designerSlug: designer.slug,
       studio,
+      region,
       start: Timestamp.fromDate(start),
       end: Timestamp.fromDate(end),
       status,
@@ -342,7 +349,7 @@ async function moveBooking(input, actor) {
   const end = new Date(start.getTime() + service.durationMin * MIN_MS);
   const designerSlug = input.designerSlug || booking.designerSlug;
   const { designers, params } = await slotContext(db, {
-    service, studio: booking.studio, designer: designerSlug, from: start.getTime(), to: start.getTime() + 1, cfg,
+    service, studio: booking.studio, region: booking.region || null, designer: designerSlug, from: start.getTime(), to: start.getTime() + 1, cfg,
   });
   const free = computeSlots({
     ...params, now: new Date(), from: start, to: new Date(start.getTime() + 1),
@@ -419,13 +426,32 @@ exports.volneTerminy = onRequest({ region: REGION, maxInstances: 5, cors: PUBLIC
     const q = req.query;
     const serviceId = cut(q.sluzba, 100);
 
-    // Bez služby: jen nabídka služeb a studií pro první krok formuláře.
+    const designerSlug = cut(q.designer, 100) || null;
+    const studioInfo = (id) => ({ id, name: cfg.studios[id]?.name || STUDIO_NAMES[id], address: cfg.studios[id]?.address || "" });
+
+    // Bez služby: nabídka služeb, studií a oblastí pro první krok formuláře.
+    // S `designer` (přímý odkaz z profilu designéra) navíc jeho profil a co
+    // vede — formulář pak nabídne jen jeho služby, studia a oblasti.
     if (!serviceId) {
       const services = await loadServices(db);
+      let designer = null;
+      if (designerSlug) {
+        const d = (await loadDesigners(db)).find((x) => x.slug === designerSlug);
+        if (d) {
+          designer = {
+            ...publicProfile(d),
+            services: (d.reservations.services || []).filter((id) => services.some((s) => s.id === id)),
+            studios: d.reservations.studios || [],
+            homeRegions: homeRegionsOf(d),
+          };
+        }
+      }
       res.json({
         ok: true,
         services: services.map(publicService),
-        studios: STUDIOS.map((s) => ({ id: s, name: cfg.studios[s]?.name || STUDIO_NAMES[s], address: cfg.studios[s]?.address || "" })),
+        studios: STUDIOS.map(studioInfo),
+        homeRegions: cfg.homeRegions,
+        designer,
         privacyUrl: cfg.privacyUrl || "",
       });
       return;
@@ -433,23 +459,32 @@ exports.volneTerminy = onRequest({ region: REGION, maxInstances: 5, cors: PUBLIC
 
     const service = await loadService(db, serviceId);
     const studio = validateStudio(service, cut(q.studio, 20));
-    const designer = cut(q.designer, 100) || null;
+    const region = validateRegion(service, cut(q.oblast, 40), cfg);
     const now = new Date();
     const od = /^(\d{4})-(\d{2})-(\d{2})$/.exec(q.od || "");
     const fromDay = od ? fromPrague(+od[1], +od[2], +od[3], 0).getTime() : now.getTime();
     const from = Math.max(now.getTime(), fromDay);
     const to = Math.min(from + 31 * DAY_MS, horizonEnd(service, now));
-    const { designers, params } = await slotContext(db, { service, studio, designer, from, to, cfg });
-    const slots = computeSlots({ ...params, now, from: new Date(from), to: new Date(to) });
+    const { designers, params } = await slotContext(db, { service, studio, region, designer: null, from, to, cfg });
+    const all = computeSlots({ ...params, now, from: new Date(from), to: new Date(to) });
 
-    // Jen časy — kdo konkrétně je volný, se navenek neříká (kromě přímého
-    // odkazu na designéra, kde se zobrazí jeho jméno).
-    const times = [...new Set(slots.map((s) => s.start.getTime()))].sort((a, b) => a - b);
+    // Designéři pro výběr (firma tlačí konkrétní designéry): profil + nejbližší
+    // volný termín. Kontakty ani obsazenost se ven nedávají, jen volné časy.
+    const nextFree = {};
+    for (const sl of all) if (!nextFree[sl.designerSlug]) nextFree[sl.designerSlug] = sl.start.toISOString();
+    const list = designers
+      .map((d) => ({ ...publicProfile(d), nextSlot: nextFree[d.slug] || null }))
+      .sort((x, y) => (x.nextSlot || "9").localeCompare(y.nextSlot || "9") || x.name.localeCompare(y.name, "cs"));
+
+    const chosen = designerSlug ? all.filter((sl) => sl.designerSlug === designerSlug) : all;
+    const times = [...new Set(chosen.map((sl) => sl.start.getTime()))].sort((x, y) => x - y);
     res.json({
       ok: true,
       service: publicService(service),
-      studio: studio ? { id: studio, name: cfg.studios[studio]?.name || STUDIO_NAMES[studio], address: cfg.studios[studio]?.address || "" } : null,
-      designer: designer && designers[0] ? { slug: designers[0].slug, name: designers[0].name } : null,
+      studio: studio ? studioInfo(studio) : null,
+      region: region ? cfg.homeRegions.find((r) => r.id === region) : null,
+      designers: list,
+      designer: designerSlug ? list.find((d) => d.slug === designerSlug) || null : null,
       slots: times.map((t) => new Date(t).toISOString()),
     });
   } catch (err) {
@@ -477,6 +512,7 @@ exports.vytvoritRezervaci = onRequest({ region: REGION, maxInstances: 5, cors: P
     const booking = await createBooking({
       serviceId: cut(body.sluzba, 100),
       studio: cut(body.studio, 20),
+      region: cut(body.oblast, 40),
       designerSlug: cut(body.designer, 100) || null,
       start: body.start,
       name: body.name, phone: body.phone, email: body.email, address: body.address, note: body.note,
@@ -489,6 +525,7 @@ exports.vytvoritRezervaci = onRequest({ region: REGION, maxInstances: 5, cors: P
       status: booking.status,
       start: booking.start.toDate().toISOString(),
       end: booking.end.toDate().toISOString(),
+      designerName: booking.designerName,
     });
   } catch (err) {
     sendError(res, err);
@@ -519,10 +556,11 @@ exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
       const cfg = await loadConfig();
       const service = await loadService(db, data.serviceId);
       const studio = validateStudio(service, data.studio);
+      const region = validateRegion(service, data.region || null, cfg, { required: false });
       const now = new Date();
       const from = data.from ? new Date(data.from).getTime() : now.getTime();
       const to = Math.min((data.to ? new Date(data.to).getTime() : from + 14 * DAY_MS), from + 62 * DAY_MS);
-      const { designers, params } = await slotContext(db, { service, studio, designer: data.designerSlug || null, from, to, cfg });
+      const { designers, params } = await slotContext(db, { service, studio, region, designer: data.designerSlug || null, from, to, cfg });
       const slots = computeSlots({ ...params, now, from: new Date(from), to: new Date(to), ignoreLead: data.ignoreLead === true });
       const names = Object.fromEntries(designers.map((d) => [d.slug, d.name]));
       return {
@@ -559,11 +597,19 @@ exports.rezervaceAkce = onCall({ region: REGION }, async (request) => {
       const services = (await loadServices(db, { activeOnly: false })).map((s) => s.id);
       const raynetUserId = r.raynetUserId === "" || r.raynetUserId == null ? null : Number(r.raynetUserId);
       if (raynetUserId !== null && !Number.isInteger(raynetUserId)) throw new HttpsError("invalid-argument", "Raynet ID musí být číslo.");
+      const photoUrl = cut(r.photoUrl, 500);
+      if (photoUrl && !/^https:\/\//.test(photoUrl)) throw new HttpsError("invalid-argument", "Fotka musí být https:// odkaz.");
+      const regionIds = ((await loadConfig()).homeRegions || []).map((x) => x.id);
       const reservations = {
         enabled: r.enabled === true,
         studios: (r.studios || []).filter((s) => STUDIOS.includes(s)),
+        homeRegions: (r.homeRegions || []).filter((s) => regionIds.includes(s)),
         services: (r.services || []).filter((s) => services.includes(s)),
         raynetUserId,
+        // Veřejný profil na /rezervovat/ (firma tlačí konkrétní designéry).
+        publicPosition: cut(r.publicPosition, 100),
+        bio: cut(r.bio, 400),
+        photoUrl,
       };
       // Jen pod-objekt `reservations` — nic jiného v users/{slug} se nemění.
       await ref.update({ reservations });

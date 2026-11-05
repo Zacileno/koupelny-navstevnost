@@ -903,7 +903,11 @@ async function syncBooking(ref, b) {
 // neúspěšný push opakoval donekonečna. Opakování řeší rezervaceObsazenost.
 const SYNC_FIELDS = ["status", "start", "end", "designerSlug"];
 
-exports.rezervaceRaynetSync = onDocumentWritten({ region: REGION, document: "res_bookings/{id}" }, async (event) => {
+// Firestore je v multiregionu eur3 → trigger musí běžet v europe-west1
+// (doporučený region pro eur3), ne v europe-central2 jako ostatní funkce.
+const FIRESTORE_TRIGGER_REGION = "europe-west1";
+
+exports.rezervaceRaynetSync = onDocumentWritten({ region: FIRESTORE_TRIGGER_REGION, document: "res_bookings/{id}" }, async (event) => {
   const after = event.data?.after;
   if (!after?.exists) return;
   const before = event.data.before?.exists ? event.data.before.data() : null;

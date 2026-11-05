@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nastavení rezervací — Koupelny Syrový</title>
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../shared/shared.css">
+    <link rel="stylesheet" href="rezervace.css">
+    <style>
+        .page-wrap { max-width: 1100px; }
+        .section-h { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); margin: 26px 0 10px; }
+        .hours { display: grid; grid-template-columns: 110px repeat(7, minmax(0, 1fr)); gap: 4px; font-size: 12px; align-items: center; }
+        .hours input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 5px; font-family: var(--font); font-size: 11px; }
+        .hours .hd { color: var(--text-dim); font-weight: 700; text-align: center; }
+        @media (max-width: 760px) { .hours { grid-template-columns: 1fr; } .hours .hd { display: none; } }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <img src="../logo.png" alt="Koupelny Syrový" class="topbar__logo">
+    <span class="topbar__title">Rezervace</span>
+    <div class="topbar__user">
+        <span class="topbar__user-name" id="userName">…</span>
+        <button class="btn-logout" id="logoutBtn">Odhlásit</button>
+    </div>
+</div>
+
+<div class="page-wrap">
+    <nav class="subnav">
+        <a href="kalendar.html" data-keep>Můj kalendář</a>
+        <a href="prehled.html" data-keep>Přehled rezervací</a>
+        <a href="nastaveni.html" class="active" data-keep>Nastavení</a>
+    </nav>
+    <div id="banner"></div>
+
+    <div class="section-h">Služby</div>
+    <p class="hint" style="margin-bottom:8px">Hodnoty se projeví hned. Předstih „dny“ = nejdřív N-tý den po dnešku od půlnoci.</p>
+    <div class="card table-wrap"><table class="tbl" id="servicesTbl"></table></div>
+
+    <div class="section-h">Designéři</div>
+    <p class="hint" style="margin-bottom:8px">Raynet ID = ID kontaktní osoby uživatele v Raynetu (vypíše ho <code>node scripts/set-raynet-config.js --check</code>).</p>
+    <div class="card table-wrap"><table class="tbl" id="designersTbl"></table></div>
+
+    <div class="section-h">Studia a otevírací doby</div>
+    <p class="hint" style="margin-bottom:8px">Formát „09:00-18:00“, prázdné = zavřeno. Bloky mimo otevírací dobu kalendář jen upozorní, nezablokuje.</p>
+    <div class="card" id="studiosBox"></div>
+
+    <div class="section-h">Obecné</div>
+    <div class="card" id="generalBox"></div>
+    <div class="btn-row"><button class="btn btn--primary" id="saveConfig">Uložit studia a obecné</button></div>
+</div>
+
+<script type="module">
+import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
+import { DEMO, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES } from './rezervace-common.js';
+
+const { collection, getDocs, getDoc, doc, setDoc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
+
+const DAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+const DEFAULT_RAYNET = { busyEntities: ['event', 'meeting'], writeEntity: 'event', cancelMode: 'delete', createContact: true, liveCheck: true };
+
+let db = null;
+let users = {}, services = [], config = {};
+const $ = (id) => document.getElementById(id);
+
+async function init() {
+    if (DEMO) {
+        users = DEMO_USERS; services = DEMO_SERVICES;
+        $('userName').textContent = 'Demo mód';
+        document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1');
+    } else {
+        const session = await requireAuth('/login.html');
+        if (!session) return;
+        if (!['hr', 'admin'].includes(session.profile?.platformRole)) { location.href = 'kalendar.html'; return; }
+        $('userName').textContent = session.profile?.name ?? session.user.email;
+        $('logoutBtn').addEventListener('click', () => signOutUser('/login.html'));
+        ({ db } = await initFirebase());
+        const [uSnap, sSnap, cSnap] = await Promise.all([getDocs(collection(db, 'users')), getDocs(collection(db, 'res_services')), getDoc(doc(db, 'config', 'rezervace'))]);
+        users = Object.fromEntries(uSnap.docs.map(d => [d.id, d.data()]));
+        services = sSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+        config = cSnap.exists() ? cSnap.data() : {};
+        if (!services.length) $('banner').innerHTML = '<div class="banner banner--warn">Žádné služby — spusť nejdřív <code>node scripts/seed-rezervace.js --apply</code>.</div>';
+    }
+    renderServices();
+    renderDesigners();
+    renderStudios();
+    renderGeneral();
+    $('saveConfig').addEventListener('click', saveConfig);
+}
+
+// ── služby ──
+
+const SERVICE_COLS = [
+    ['name', 'Název', 'text'], ['durationMin', 'Délka (min)', 'number'], ['minLeadMinutes', 'Předstih (min)', 'number'],
+    ['minLeadDays', 'Předstih (dny)', 'number'], ['leadDayMode', 'Dny', 'mode'], ['horizonDays', 'Horizont (dny)', 'number'],
+    ['bufferMin', 'Rozestup (min)', 'number'], ['priceText', 'Cena (text)', 'text'], ['requiresConfirmation', 'Potvrzuje CX', 'bool'], ['active', 'Aktivní', 'bool'],
+];
+
+function renderServices() {
+    const cell = (s, [key, , type]) => {
+        const v = s[key];
+        if (type === 'bool') return `<input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}>`;
+        if (type === 'mode') return `<select data-k="${key}"><option value="calendar" ${v !== 'working' ? 'selected' : ''}>kalendářní</option><option value="working" ${v === 'working' ? 'selected' : ''}>pracovní</option></select>`;
+        return `<input type="${type}" data-k="${key}" value="${escapeHtml(v ?? '')}" ${type === 'number' ? 'min="0"' : ''}>`;
+    };
+    $('servicesTbl').innerHTML = `<tr>${SERVICE_COLS.map(c => `<th>${c[1]}</th>`).join('')}<th></th></tr>` +
+        services.map(s => `<tr data-id="${s.id}">${SERVICE_COLS.map(c => `<td>${cell(s, c)}</td>`).join('')}
+            <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td></tr>`).join('');
+    $('servicesTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveService(btn.closest('tr'))));
+}
+
+async function saveService(tr) {
+    const data = {};
+    tr.querySelectorAll('[data-k]').forEach(el => {
+        const col = SERVICE_COLS.find(c => c[0] === el.dataset.k);
+        data[el.dataset.k] = col[2] === 'bool' ? el.checked : col[2] === 'number' ? Math.max(0, Number(el.value) || 0) : el.value.trim();
+    });
+    if (!data.name || data.durationMin < 15) { showToast('Název a délka (min. 15 min) jsou povinné', 'error'); return; }
+    if (DEMO) { showToast('Demo: služba by se uložila'); return; }
+    await setDoc(doc(db, 'res_services', tr.dataset.id), { ...data, updatedAt: Timestamp.now() }, { merge: true });
+    showToast('Služba uložena', 'success');
+}
+
+// ── designéři ──
+
+function renderDesigners() {
+    const list = Object.entries(users)
+        .filter(([, u]) => u.active !== false && !u.external && (u.reservations || ['sales', 'realization'].includes(u.department)))
+        .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'cs'));
+    $('designersTbl').innerHTML = `<tr><th>Člověk</th><th>Rezervace</th><th>Studia</th><th>Služby</th><th>Raynet ID</th><th></th></tr>` +
+        list.map(([slug, u]) => {
+            const r = u.reservations || {};
+            return `<tr data-slug="${slug}">
+                <td>${escapeHtml(u.name || slug)}<br><span class="hint">${escapeHtml(u.position || '')}</span></td>
+                <td><input type="checkbox" data-enabled ${r.enabled ? 'checked' : ''}></td>
+                <td class="check-list">${Object.entries(STUDIO_LABELS).map(([k, v]) => `<label><input type="checkbox" data-studio="${k}" ${(r.studios || []).includes(k) ? 'checked' : ''}>${v}</label>`).join('')}</td>
+                <td class="check-list">${services.map(s => `<label><input type="checkbox" data-service="${s.id}" ${(r.services || []).includes(s.id) ? 'checked' : ''}>${escapeHtml(s.name)}</label>`).join('')}</td>
+                <td style="width:90px"><input type="text" inputmode="numeric" data-raynet value="${escapeHtml(r.raynetUserId ?? '')}"></td>
+                <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td>
+            </tr>`;
+        }).join('');
+    $('designersTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveDesigner(btn)));
+}
+
+async function saveDesigner(btn) {
+    const tr = btn.closest('tr');
+    const reservations = {
+        enabled: tr.querySelector('[data-enabled]').checked,
+        studios: [...tr.querySelectorAll('[data-studio]:checked')].map(e => e.dataset.studio),
+        services: [...tr.querySelectorAll('[data-service]:checked')].map(e => e.dataset.service),
+        raynetUserId: tr.querySelector('[data-raynet]').value.trim(),
+    };
+    btn.disabled = true;
+    try {
+        await akce('nastavitDesignera', { slug: tr.dataset.slug, reservations });
+        showToast(DEMO ? 'Demo: uloženo by bylo' : 'Designér uložen', 'success');
+    } catch (err) {
+        showToast(err.message || 'Uložení selhalo', 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ── studia + obecné (config/rezervace) ──
+
+function renderStudios() {
+    const studios = config.studios || {};
+    $('studiosBox').innerHTML = Object.entries(STUDIO_LABELS).map(([k, label]) => {
+        const s = studios[k] || {};
+        const h = s.openingHours || {};
+        return `<div data-studio-box="${k}" style="margin-bottom:16px">
+            <div class="row2"><div class="form-group"><label>${label} — název</label><input data-f="name" value="${escapeHtml(s.name || label)}"></div>
+            <div class="form-group"><label>Adresa</label><input data-f="address" value="${escapeHtml(s.address || '')}"></div></div>
+            <div class="hours"><span></span>${DAYS.map(d => `<span class="hd">${d}</span>`).join('')}
+            <span class="hint">Otevírací doba</span>${DAYS.map((d, i) => {
+                const v = h[String(i + 1)];
+                return `<input data-day="${i + 1}" placeholder="${d} zavřeno" value="${v ? `${v[0]}-${v[1]}` : ''}">`;
+            }).join('')}</div>
+        </div>`;
+    }).join('');
+}
+
+function renderGeneral() {
+    const r = { ...DEFAULT_RAYNET, ...(config.raynet || {}) };
+    $('generalBox').innerHTML = `
+        <div class="row2">
+            <div class="form-group"><label>Hromadný rezervační e-mail (F2)</label><input id="gBulk" type="email" value="${escapeHtml(config.bulkEmail || '')}"></div>
+            <div class="form-group"><label>Alert „prázdný kalendář“ — komu (čárkou)</label><input id="gAlert" value="${escapeHtml((config.alertRecipients || []).join(', '))}"></div>
+        </div>
+        <div class="row2">
+            <div class="form-group"><label>Odkaz na zásady osobních údajů (veřejný formulář)</label><input id="gPrivacy" type="url" value="${escapeHtml(config.privacyUrl || '')}"></div>
+            <div class="form-group"><label>Max. aktivních rezervací na 1 telefon (web)</label><input id="gMaxPhone" type="number" min="0" value="${config.maxActivePerPhone ?? 3}"></div>
+        </div>
+        <div class="check-list" style="margin-bottom:14px">
+            <label><input type="checkbox" id="gHolidays" ${config.blockHolidays !== false ? 'checked' : ''}> Ve státní svátek nic nenabízet</label>
+        </div>
+        <div class="row2">
+            <div class="form-group"><label>Raynet — zakládat jako</label><select id="rWrite">
+                <option value="event" ${r.writeEntity === 'event' ? 'selected' : ''}>Událost</option>
+                <option value="meeting" ${r.writeEntity === 'meeting' ? 'selected' : ''}>Schůzka</option></select></div>
+            <div class="form-group"><label>Raynet — při zrušení</label><select id="rCancel">
+                <option value="delete" ${r.cancelMode === 'delete' ? 'selected' : ''}>smazat událost</option>
+                <option value="rename" ${r.cancelMode === 'rename' ? 'selected' : ''}>přejmenovat na „ZRUŠENO“</option></select></div>
+        </div>
+        <div class="check-list">
+            <label><input type="checkbox" id="rBusyEvent" ${r.busyEntities.includes('event') ? 'checked' : ''}> Obsazenost z Událostí</label>
+            <label><input type="checkbox" id="rBusyMeeting" ${r.busyEntities.includes('meeting') ? 'checked' : ''}> Obsazenost ze Schůzek</label>
+            <label><input type="checkbox" id="rCreate" ${r.createContact ? 'checked' : ''}> Zakládat kontakt, když se nenajde</label>
+            <label><input type="checkbox" id="rLive" ${r.liveCheck ? 'checked' : ''}> Živá kontrola Raynetu před zápisem</label>
+        </div>`;
+}
+
+function parseHours(v) {
+    const m = /^(\d{1,2}):?(\d{2})?\s*-\s*(\d{1,2}):?(\d{2})?$/.exec(v.trim());
+    if (!m) return null;
+    const t = (h, mm) => `${String(+h).padStart(2, '0')}:${mm || '00'}`;
+    return [t(m[1], m[2]), t(m[3], m[4])];
+}
+
+async function saveConfig() {
+    const studios = {};
+    let bad = false;
+    document.querySelectorAll('[data-studio-box]').forEach(box => {
+        const openingHours = {};
+        box.querySelectorAll('[data-day]').forEach(inp => {
+            if (!inp.value.trim()) return;
+            const h = parseHours(inp.value);
+            if (!h || h[0] >= h[1]) { bad = true; inp.style.borderColor = 'var(--danger)'; return; }
+            inp.style.borderColor = '';
+            openingHours[inp.dataset.day] = h;
+        });
+        studios[box.dataset.studioBox] = { name: box.querySelector('[data-f="name"]').value.trim(), address: box.querySelector('[data-f="address"]').value.trim(), openingHours };
+    });
+    if (bad) { showToast('Opravte otevírací dobu (formát 09:00-18:00)', 'error'); return; }
+    const busyEntities = [$('rBusyEvent').checked && 'event', $('rBusyMeeting').checked && 'meeting'].filter(Boolean);
+    const data = {
+        studios,
+        bulkEmail: $('gBulk').value.trim(),
+        alertRecipients: $('gAlert').value.split(',').map(s => s.trim()).filter(Boolean),
+        privacyUrl: $('gPrivacy').value.trim(),
+        maxActivePerPhone: Math.max(0, Number($('gMaxPhone').value) || 0),
+        blockHolidays: $('gHolidays').checked,
+        raynet: { busyEntities, writeEntity: $('rWrite').value, cancelMode: $('rCancel').value, createContact: $('rCreate').checked, liveCheck: $('rLive').checked },
+        updatedAt: DEMO ? null : Timestamp.now(),
+    };
+    if (DEMO) { showToast('Demo: nastavení by se uložilo'); return; }
+    // Celý dokument, ne merge — jinak by smazaný den otevírací doby v mapě zůstal.
+    config = { ...config, ...data };
+    await setDoc(doc(db, 'config', 'rezervace'), config);
+    showToast('Nastavení uloženo (functions si ho načtou do minuty)', 'success');
+}
+
+init().catch(err => {
+    console.error(err);
+    $('banner').innerHTML = '<div class="banner banner--warn">Nastavení se nepodařilo načíst.</div>';
+});
+</script>
+</body>
+</html>

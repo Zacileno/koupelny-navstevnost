@@ -317,6 +317,7 @@ Přihlášení na novém zařízení: GitHub přes `gh auth login` + `gh auth se
 - **Po deployi workflow sám ověří** `curl`em, že `onboardEmployee`/`offboardEmployee`/`resetEmployeePassword` vrací `UNAUTHENTICATED` (= Cloud Run Invoker OK). Novou `onCall` funkci do toho seznamu v `deploy.yml` přidat.
 - **⚠️ Nová `onCall` funkce:** deployer má `roles/run.viewer`, ne `run.admin`, takže **neumí nastavit `allUsers` invoker** na nové Cloud Run službě — první deploy nové funkce může projít, ale funkce nepůjde zavolat (kontrola ve workflow spadne). Pak invoker nastavit ručně v Cloud Run konzoli (viz Známé pasti) — vědomě, ať automat nemůže sám zveřejňovat služby.
 - **Workflow soubory (`.github/workflows/`)** jde pushnout jen s GitHub tokenem se scope `workflow` — na novém zařízení `gh auth refresh -s workflow`.
+- **Stav: ✅ funkční, ověřeno 2026-10-01** (běh `36846702359`: hosting + všechny 4 functions nasazené, kontrola `onCall` OK, produkce shodná s repem). Cestou dvě chyby, které v CI vylezou, ale lokálně ne (obě už řeší setup skript): firebase-tools chce `iam.serviceAccounts.ActAs` i na **App Engine default SA** (`koupelny-navstevnost@appspot.gserviceaccount.com`), a potřebuje zapnuté **Cloud Billing API** (ověření Blaze tarifu).
 
 ### Postup jedné změny (cloud → produkce)
 

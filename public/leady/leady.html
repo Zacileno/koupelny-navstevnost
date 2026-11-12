@@ -282,6 +282,17 @@ function renderKpis() {
     document.title = (late.length ? `(${late.length}) ` : '') + 'Leady — Koupelny Syrový';
 }
 
+const shortDate = d => toDate(d).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' });
+
+// „Zatím nevoláno“ jen u otevřených leadů — uzavřený lead bez zapsaného pokusu
+// (typicky spam/duplicita uzavřená rovnou) ukazuje datum uzavření.
+function callLine(lead) {
+    if (lead.attempts?.length) return `${lead.attempts.length}× voláno`;
+    if (lead.firstAttemptAt) return `Kontaktováno ${shortDate(lead.firstAttemptAt)}`;
+    if (lead.status === 'closed' && lead.closedAt) return `Uzavřeno ${shortDate(lead.closedAt)}`;
+    return 'Zatím nevoláno';
+}
+
 function render() {
     renderKpis();
     const listEl = document.getElementById('list');
@@ -310,8 +321,7 @@ function render() {
             </div>
             <div class="lead-card__side">
                 ${lead.status === 'open' ? slaChip(lead) : `<span class="badge ${lead.outcome === 'meeting' ? 'badge--gold' : 'badge--pending'}">${escapeHtml(OUTCOME_LABELS[lead.outcome] ?? lead.outcome)}</span>`}
-                <span class="lead-card__meta">${lead.attempts?.length ? `${lead.attempts.length}× voláno`
-                    : lead.firstAttemptAt ? `Kontaktováno ${toDate(lead.firstAttemptAt).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' })}` : 'Zatím nevoláno'}${studiosLine(lead) ? ` · ${escapeHtml(studiosLine(lead))}` : ''}</span>
+                <span class="lead-card__meta">${callLine(lead)}${studiosLine(lead) ? ` · ${escapeHtml(studiosLine(lead))}` : ''}</span>
                 ${lead.duplicateOfId ? '<span class="badge badge--collision">Možná duplicita</span>' : ''}
             </div>
             ${lastAttempt?.note || lead.notes ? `<div class="lead-card__note">${escapeHtml(lastAttempt?.note || lead.notes)}</div>` : ''}
@@ -571,8 +581,12 @@ async function closeLead(lead) {
         if (missing.length) return closeFormError('U schůzky vyplň studio a termín.', missing);
     }
     const reached = REACHED_OUTCOMES.includes(outcome);
-    if (reached && !lead.firstAttemptAt) data.firstAttemptAt = Timestamp.fromDate(now);
-    if (await save(lead, data, `Uzavřeno: ${OUTCOME_LABELS[outcome]}`, reached ? attemptEntry('reached', '') : null)) closeModal();
+    // „Nedovoláno“ bez jediného zapsaného pokusu = volala, ale nezapsala „Nezvedá“ — doplnit pokus,
+    // jinak by uzavřený lead tvrdil „Zatím nevoláno“.
+    const unreachableNoAttempt = outcome === 'unreachable' && !(lead.attempts || []).length;
+    const closingAttempt = reached ? attemptEntry('reached', '') : unreachableNoAttempt ? attemptEntry('no_answer', '') : null;
+    if (closingAttempt && !lead.firstAttemptAt) data.firstAttemptAt = Timestamp.fromDate(now);
+    if (await save(lead, data, `Uzavřeno: ${OUTCOME_LABELS[outcome]}`, closingAttempt)) closeModal();
 }
 
 async function reopenLead(lead) {

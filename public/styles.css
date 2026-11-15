@@ -545,3 +545,8 @@ button[type="submit"]:active {
         grid-template-columns: 1fr;
     }
 }
+
+/* === MIMO OTEVÍRACÍ DOBU === */
+.hidden { display: none !important; }
+.checkbox-row { flex-direction: row; }
+.checkbox-row .checkbox-label { flex: 1; }

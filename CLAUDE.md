@@ -68,7 +68,8 @@ Platforma se má přizpůsobit nové obchodní strategii (detail mimo repo: `STR
   - `position` (string), `email` (string), `phone` (string), `personalPhone` (string, nepovinné) — čtení kolekce teď vyžaduje přihlášení (`allow read: if isSignedIn()`), viz Bezpečnostní audit
   - `external` (boolean, nepovinné) — true pro externí dodavatele/agentury (KMi Stav, Zacileno, externí právník/účetní)
 - **URL parametry:** `?studio=praha&user=barbora-lojkaskova` (osobní odkazy) — funguje beze změny, jen teď až po přihlášení
-- **Funkce dashboardu:** KPI s YoY, měsíční navigace, srovnání studií, funnel, zdroje
+- **Funkce dashboardu:** KPI s YoY, měsíční navigace, srovnání studií, funnel, zdroje, mimo otevírací dobu
+- **Mimo otevírací dobu (od 2026-11-15):** povinná otázka ve formuláři Ano/Ne (`entries.outsideHours`, boolean). Při „Ano“ povinný důvod `outsideHoursReason` (`google` Na Googlu je otevřeno / `naslepo` / `driv` byl tu dřív a změnu nečekal / `web` špatné info na webu / `katalog` firmy.cz apod. / `jine`) a u `jine` povinný text `outsideHoursNote`. Dashboard: panel „Mimo otevírací dobu“ — % návštěv mimo otevírací dobu + koláč důvodů celkem a po studiích, seznam „Jiné důvody“. Jmenovatel = jen záznamy s vyplněnou otázkou (starší záznamy pole nemají, do % se nepočítají). Editace v detailu dne pole zatím neumí.
 
 ### 2. CX Zpětná vazba
 - **Účel:** Telefonické dotazování zákazníků po dokončení zakázky

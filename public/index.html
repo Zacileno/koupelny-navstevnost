@@ -93,6 +93,50 @@
                         </label>
                     </div>
 
+                    <h3>Přišel mimo otevírací dobu?</h3>
+                    <div class="checkbox-group checkbox-row">
+                        <label class="checkbox-label">
+                            <input type="radio" name="outsideHours" value="yes" required>
+                            <span>Ano</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="radio" name="outsideHours" value="no">
+                            <span>Ne</span>
+                        </label>
+                    </div>
+
+                    <div id="outsideHoursReasonWrap" class="hidden">
+                        <h3>Proč nezachytil novou otevírací dobu?</h3>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="radio" name="outsideHoursReason" value="google">
+                                <span>Na Googlu je otevřeno</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="radio" name="outsideHoursReason" value="naslepo">
+                                <span>Přišel naslepo</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="radio" name="outsideHoursReason" value="driv">
+                                <span>Byl tu dřív a změnu nečekal</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="radio" name="outsideHoursReason" value="web">
+                                <span>Špatné info na webu</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="radio" name="outsideHoursReason" value="katalog">
+                                <span>Info z jiného katalogu (firmy.cz apod.)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="radio" name="outsideHoursReason" value="jine">
+                                <span>Jiné</span>
+                            </label>
+                        </div>
+                        <input type="text" id="outsideHoursNote" class="hidden" maxlength="200"
+                               placeholder="Doplň důvod…" style="margin-top:6px;">
+                    </div>
+
                     <h3>Co řešil</h3>
                     <div class="checkbox-group">
                         <label class="checkbox-label">

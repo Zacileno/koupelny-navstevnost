@@ -220,6 +220,7 @@ async function loadData() {
         if (viewMode === 'month') updateYoYChart(curr, prev);
         updateBarChart();
         updatePieChart();
+        updateOutsideHours();
         updateFunnel();
         updateTable();
         updateStudiaDetail();
@@ -612,6 +613,127 @@ function updatePieChart() {
 
 
 // ============================================================
+//  MIMO OTEVÍRACÍ DOBU — podíl návštěv + důvody (celkem a po studiích)
+//  Jmenovatel = jen záznamy, kde je pole vyplněné (starší záznamy ho nemají)
+// ============================================================
+const OH_REASONS = {
+    google:  { label: 'Na Googlu je otevřeno',        color: '#179ED9' },
+    naslepo: { label: 'Přišel naslepo',               color: '#0FBCBD' },
+    driv:    { label: 'Byl tu dřív a změnu nečekal',  color: '#C5A66B' },
+    web:     { label: 'Špatné info na webu',          color: '#f87171' },
+    katalog: { label: 'Info z jiného katalogu',       color: '#8FA378' },
+    jine:    { label: 'Jiné',                         color: '#5a6070' },
+};
+
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function summarizeOutsideHours(entries) {
+    const answered = entries.filter(e => e.mode === 'individual' && typeof e.outsideHours === 'boolean');
+    const outside  = answered.filter(e => e.outsideHours);
+    const reasons  = Object.fromEntries(Object.keys(OH_REASONS).map(k => [k, 0]));
+    outside.forEach(e => { reasons[OH_REASONS[e.outsideHoursReason] ? e.outsideHoursReason : 'jine']++; });
+    return { answered: answered.length, outside: outside.length, reasons, entries: outside };
+}
+
+function formatPct(part, whole) {
+    return whole > 0 ? `${Math.round((part / whole) * 100)} %` : '–';
+}
+
+function renderReasonDoughnut(canvas, reasons, { legend = true } = {}) {
+    const keys = Object.keys(reasons).filter(k => reasons[k] > 0);
+    const hasData = keys.length > 0;
+    return new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels: hasData ? keys.map(k => OH_REASONS[k].label) : ['Nikdo mimo otevírací dobu'],
+            datasets: [{
+                data: hasData ? keys.map(k => reasons[k]) : [1],
+                backgroundColor: hasData ? keys.map(k => OH_REASONS[k].color) : ['#252a38'],
+                borderWidth: 0,
+                hoverOffset: 6
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: legend,
+                    position: 'right',
+                    labels: { color: '#9aa0b0', font: { family: 'Montserrat', size: 10 }, boxWidth: 10, padding: 8 }
+                },
+                tooltip: {
+                    enabled: hasData,
+                    callbacks: {
+                        label: ctx => {
+                            const sum = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            return ` ${ctx.label}: ${ctx.parsed} (${formatPct(ctx.parsed, sum)})`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updateOutsideHours() {
+    (charts.ohStudios || []).forEach(c => c.destroy());
+    charts.ohStudios = [];
+    if (charts.oh) charts.oh.destroy();
+
+    const total = summarizeOutsideHours(entriesRaw);
+
+    document.getElementById('ohBadge').textContent = `vyplněno u ${total.answered} návštěv`;
+    document.getElementById('ohPct').textContent = formatPct(total.outside, total.answered);
+    document.getElementById('ohSub').textContent = total.answered > 0
+        ? `${total.outside} z ${total.answered} návštěv přišlo mimo otevírací dobu`
+        : 'Zatím žádné záznamy s vyplněnou otázkou';
+    charts.oh = renderReasonDoughnut(document.getElementById('ohChart'), total.reasons);
+
+    // Po studiích — při filtru na jedno studio jen to jedno
+    const studios = currentStudio === 'all' ? Object.keys(STUDIO_NAMES) : [currentStudio];
+    const wrap = document.getElementById('ohStudios');
+    wrap.innerHTML = studios.map(s => `
+        <div class="oh-studio">
+            <div class="oh-studio-name">${STUDIO_NAMES[s]}</div>
+            <div class="oh-studio-pct" id="ohPct-${s}">–</div>
+            <div class="oh-studio-sub" id="ohSub-${s}"></div>
+            <div class="chart-wrap" style="height:120px;" id="ohWrap-${s}"><canvas id="ohChart-${s}"></canvas></div>
+            <ul class="oh-studio-reasons" id="ohReasons-${s}"></ul>
+        </div>`).join('');
+
+    studios.forEach(s => {
+        const st = summarizeOutsideHours(entriesRaw.filter(e => e.studio === s));
+        document.getElementById(`ohPct-${s}`).textContent = formatPct(st.outside, st.answered);
+        document.getElementById(`ohSub-${s}`).textContent = st.answered > 0
+            ? `${st.outside} z ${st.answered} návštěv`
+            : 'bez vyplněných záznamů';
+        if (st.outside > 0) {
+            charts.ohStudios.push(renderReasonDoughnut(document.getElementById(`ohChart-${s}`), st.reasons, { legend: false }));
+            document.getElementById(`ohReasons-${s}`).innerHTML = Object.keys(st.reasons)
+                .filter(k => st.reasons[k] > 0)
+                .sort((a, b) => st.reasons[b] - st.reasons[a])
+                .map(k => `<li><i style="background:${OH_REASONS[k].color}"></i>${OH_REASONS[k].label}<b>${st.reasons[k]}</b></li>`)
+                .join('');
+        } else {
+            document.getElementById(`ohWrap-${s}`).innerHTML = '';
+            document.getElementById(`ohWrap-${s}`).style.height = '0';
+        }
+    });
+
+    // Doplněné důvody u „Jiné“
+    const notes = total.entries.filter(e => e.outsideHoursReason === 'jine' && e.outsideHoursNote);
+    document.getElementById('ohNotes').innerHTML = notes.length === 0 ? '' : `
+        <h4>Jiné důvody</h4>
+        <ul>${notes.map(e => {
+            const [y, m, d] = (e.date || '').split('-');
+            return `<li>${escapeHtml(e.outsideHoursNote)} <span style="color:var(--muted)">— ${STUDIO_NAMES[e.studio] || e.studio}, ${d}.${m}.${y}</span></li>`;
+        }).join('')}</ul>`;
+}
+
+
+// ============================================================
 //  FUNNEL
 // ============================================================
 function updateFunnel() {
@@ -768,6 +890,7 @@ async function openDetail(studio, date) {
                     <span class="detail-name">${jmeno}</span>
                     <span class="detail-type">${typ}</span>
                     <span class="detail-source">${src}</span>
+                    ${e.outsideHours ? `<span class="detail-source" title="${escapeHtml(e.outsideHoursNote || '')}">⏰ Mimo otevírací dobu: ${OH_REASONS[e.outsideHoursReason]?.label || '–'}${e.outsideHoursNote ? ' – ' + escapeHtml(e.outsideHoursNote) : ''}</span>` : ''}
                 </div>
                 <div class="detail-row-actions">
                     <button class="btn-edit" onclick="editEntry('${e.id}', '${e.source}', ${e.isNew}, '${e.date}')">✏️ Upravit</button>

@@ -25,6 +25,29 @@ function initFunnelLogic() {
     });
 }
 
+// === MIMO OTEVÍRACÍ DOBU — důvod se ukáže jen u „Ano“, pole na doplnění jen u „Jiné“ ===
+const OUTSIDE_HOURS_REASONS = {
+    google:  'Na Googlu je otevřeno',
+    naslepo: 'Přišel naslepo',
+    driv:    'Byl tu dřív a změnu nečekal',
+    web:     'Špatné info na webu',
+    katalog: 'Info z jiného katalogu',
+    jine:    'Jiné',
+};
+
+function syncOutsideHoursFields() {
+    const outside = document.querySelector('input[name="outsideHours"]:checked')?.value === 'yes';
+    const reason = document.querySelector('input[name="outsideHoursReason"]:checked')?.value;
+    document.getElementById('outsideHoursReasonWrap').classList.toggle('hidden', !outside);
+    document.getElementById('outsideHoursNote').classList.toggle('hidden', !(outside && reason === 'jine'));
+}
+
+function initOutsideHoursLogic() {
+    document.querySelectorAll('input[name="outsideHours"], input[name="outsideHoursReason"]')
+        .forEach(el => el.addEventListener('change', syncOutsideHoursFields));
+    syncOutsideHoursFields();
+}
+
 // === GLOBÁLNÍ PROMĚNNÉ ===
 let todayVisitors = [];
 
@@ -94,6 +117,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     console.log('✅ Aplikace načtena!');
     initFunnelLogic();
+    initOutsideHoursLogic();
     loadTodayRecords();
 });
 
@@ -126,6 +150,30 @@ document.getElementById('individualFormElement').addEventListener('submit', asyn
         return;
     }
 
+    const outsideHoursEl = document.querySelector('input[name="outsideHours"]:checked');
+    if (!outsideHoursEl) {
+        alert('⚠️ Vyplň, jestli přišel mimo otevírací dobu!');
+        return;
+    }
+    const outsideHours = outsideHoursEl.value === 'yes';
+    let outsideHoursReason = null;
+    let outsideHoursNote = null;
+    if (outsideHours) {
+        outsideHoursReason = document.querySelector('input[name="outsideHoursReason"]:checked')?.value || null;
+        if (!outsideHoursReason) {
+            alert('⚠️ Vyber, proč nezachytil novou otevírací dobu!');
+            return;
+        }
+        if (outsideHoursReason === 'jine') {
+            outsideHoursNote = document.getElementById('outsideHoursNote').value.trim();
+            if (!outsideHoursNote) {
+                alert('⚠️ Doplň důvod u možnosti „Jiné“!');
+                document.getElementById('outsideHoursNote').focus();
+                return;
+            }
+        }
+    }
+
     const userSelect = document.getElementById('user');
     const userName = userSelect.options[userSelect.selectedIndex].text;
 
@@ -147,6 +195,9 @@ document.getElementById('individualFormElement').addEventListener('submit', asyn
         },
         wantsDelivery: document.getElementById('wantsDelivery').checked,
         wantsRealization: document.getElementById('wantsRealization').checked,
+        outsideHours: outsideHours,
+        outsideHoursReason: outsideHoursReason,
+        outsideHoursNote: outsideHoursNote,
     };
 
     console.log('📝 Ukládám návštěvníka:', visitor);
@@ -161,6 +212,7 @@ document.getElementById('individualFormElement').addEventListener('submit', asyn
         document.getElementById('individualFormElement').reset();
         document.getElementById('studio').value = studio;
         document.getElementById('user').value = user;
+        syncOutsideHoursFields();
 
         todayVisitors.push(visitor);
         updateVisitorCount();
@@ -230,6 +282,7 @@ async function loadTodayRecords() {
                         <strong>${data.source || '—'}</strong> –
                         ${data.isNew ? '🆕 Nový' : '🔁 Opakovaný'}
                         ${activeActivities ? `· <em>${activeActivities}</em>` : ''}
+                        ${data.outsideHours ? `· ⏰ mimo otevírací dobu (${OUTSIDE_HOURS_REASONS[data.outsideHoursReason] || '—'})` : ''}
                         <small>(${displayName}, ${new Date(data.timestamp).toLocaleTimeString('cs-CZ')})</small>
                     </div>
                 `;

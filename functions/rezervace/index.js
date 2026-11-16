@@ -21,7 +21,7 @@ const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestor
 const { computeSlots, BLOCKING_STATUSES, overlaps, horizonEnd, gapMs, OVERRIDABLE, serviceForDesigner } = require("./sloty");
 const { getRaynet, EXT_ID_PREFIX } = require("./raynet");
 const { DEFAULT_HOME_REGIONS, eligibleDesigners, publicProfile, homeRegionsOf } = require("./designeri");
-const { permanentShiftBlocks, studioCoverage } = require("./smeny");
+const { permanentShiftBlocks, studioCoverage, studioClosedOn } = require("./smeny");
 const { pragueDateKey, fromPrague, TZ } = require("../shared/cas");
 const { normalizePhone, isEmail } = require("../leady")._internal;
 
@@ -41,7 +41,7 @@ const DEFAULT_CONFIG = {
   bulkEmail: "",            // ⚠️ hromadný rezervační e-mail (F2)
   alertRecipients: [],      // ⚠️ komu chodí alert "prázdný kalendář" (F2)
   privacyUrl: "",           // ⚠️ odkaz na zásady zpracování osobních údajů
-  blockHolidays: true,      // ve státní svátek se nic nenabízí
+  blockHolidays: true,      // návrh doma ve státní svátek nenabízet (studio: studios[x].holidayOpen / closures)
   stepMin: 30,
   maxActivePerPhone: 3,     // max. budoucích aktivních rezervací na jeden telefon (web)
   travelMin: 60,            // ⚠️ čas na přesun před a po návrhu u klienta doma
@@ -144,6 +144,7 @@ async function slotContext(db, { service, studio, region, designer, from, to, cf
     params: {
       service, availability, bookings, busy, studio, designers: slugs,
       stepMin: cfg.stepMin, blockHolidays: cfg.blockHolidays, travelMin: cfg.travelMin,
+      studioClosed: (key, y, m, d) => studioClosedOn(cfg.studios[key], y, m, d),
       // Výchozí parametry dává admin u služby, designér si je může přepsat pro sebe.
       serviceFor: (slug) => effectiveService(service, designers.find((d) => d.slug === slug)),
       travelFor: (slug) => effectiveTravel(cfg, designers.find((d) => d.slug === slug)),

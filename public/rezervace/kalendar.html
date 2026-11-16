@@ -40,7 +40,15 @@
         <button class="btn btn--ghost btn--sm" id="mySettings">Moje nastavení</button>
     </div>
     <div id="banner"></div>
-    <div class="week" id="week"><div class="loader"><div class="spinner"></div>Načítám…</div></div>
+    <div class="cal-scroll"><div id="week"><div class="loader"><div class="spinner"></div>Načítám…</div></div></div>
+    <div class="cal-legend">
+        <span><i style="background:var(--blue-dim);border-left:3px solid var(--blue)"></i>Na schůzky — studio</span>
+        <span><i style="background:var(--gold-dim);border-left:3px solid var(--gold)"></i>Na schůzky — návrh doma</span>
+        <span><i style="background:var(--success-dim);border-left:3px solid var(--success)"></i>Směna ve studiu</span>
+        <span><i style="background:var(--surface3);border-left:3px solid var(--success)"></i>Rezervace</span>
+        <span><i style="background:var(--surface3);border-left:3px solid var(--muted)"></i>Obsazeno v Raynetu</span>
+        <span>Klikni do volného místa = nový blok na tu hodinu</span>
+    </div>
 </div>
 
 <div class="modal-backdrop" id="modal">
@@ -55,7 +63,8 @@ import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../share
 import {
     DEMO, DEMO_ADMIN, STUDIO_LABELS, TYPE_LABELS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
     pragueToDate, dateKey, timeKey, mondayKey, addDaysKey,
-    DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS, demoAvailability, demoBookings, demoBusy, akce, overridesFormHtml, readOverrides,
+    DEMO_USERS, DEMO_SERVICES, DEMO_CONFIG, DEFAULT_HOME_REGIONS, demoAvailability, demoBookings, demoBusy, akce, overridesFormHtml, readOverrides,
+    studioClosedReason,
 } from './rezervace-common.js';
 
 const { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, writeBatch, Timestamp, serverTimestamp } =
@@ -75,7 +84,7 @@ const $ = (id) => document.getElementById(id);
 
 async function init() {
     if (DEMO) {
-        me = 'demo'; isAdmin = DEMO_ADMIN; users = DEMO_USERS; services = DEMO_SERVICES;
+        me = 'demo'; isAdmin = DEMO_ADMIN; users = DEMO_USERS; services = DEMO_SERVICES; config = DEMO_CONFIG;
         $('userName').textContent = 'Demo mód';
     } else {
         const session = await requireAuth('/login.html');
@@ -155,25 +164,58 @@ function render() {
     if (r.enabled && !r.raynetUserId) banner.push('<div class="banner banner--info">Chybí Raynet ID — rezervace se do tvého kalendáře v Raynetu nepropíšou a obsazenost z Raynetu se nenačte.</div>');
     $('banner').innerHTML = banner.join('');
 
-    const today = dateKey(new Date());
     const items = [
         ...blocks.map(b => ({ kind: 'block', start: toDate(b.start), end: toDate(b.end), data: b })),
         ...bookings.map(b => ({ kind: 'booking', start: toDate(b.start), end: toDate(b.end), data: b })),
         ...busy.map(b => ({ kind: 'busy', start: toDate(b.start), end: toDate(b.end), data: b })),
     ];
-    let html = '';
+    $('week').innerHTML = gridHtml(items);
+    $('week').querySelectorAll('[data-add]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); openBlock(null, b.dataset.add); }));
+    $('week').querySelectorAll('[data-block]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); openBlock(blocks.find(x => x.id === b.dataset.block)); }));
+    $('week').querySelectorAll('[data-col]').forEach(col => col.addEventListener('click', (e) => {
+        if (e.target !== col) return; // klik na blok/rezervaci řeší jejich handler
+        const min = H0 * 60 + Math.floor((e.offsetY / HOUR_PX) * 2) * 30; // zaokrouhlit dolů na půlhodinu
+        openBlock(null, col.dataset.col, `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`);
+    }));
+}
+
+// ── týdenní mřížka (jako Google Kalendář) ──
+const HOUR_PX = 48;
+let H0 = 8, H1 = 20; // zobrazený rozsah hodin, roztáhne se podle obsahu týdne
+
+const minutesOf = (d) => { const [h, m] = timeKey(d).split(':').map(Number); return h * 60 + m; };
+
+function gridHtml(items) {
+    const today = dateKey(new Date());
+    const mins = items.flatMap(it => [minutesOf(it.start), dateKey(it.end) !== dateKey(it.start) ? 24 * 60 : minutesOf(it.end)]);
+    H0 = Math.min(8, ...mins.map(m => Math.floor(m / 60)));
+    H1 = Math.max(20, ...mins.map(m => Math.ceil(m / 60)));
+    const height = (H1 - H0) * HOUR_PX;
+    const top = (d) => ((minutesOf(d) - H0 * 60) / 60) * HOUR_PX;
+    const studioKey = users[designerSlug]?.reservations?.permanentShift || users[designerSlug]?.reservations?.studios?.[0];
+
+    let head = '<div class="cal__corner"></div>';
+    let body = `<div class="cal__axis" style="height:${height}px">${Array.from({ length: H1 - H0 }, (_, i) => i ? `<span style="top:${i * HOUR_PX}px">${H0 + i}:00</span>` : '').join('')}</div>`;
     for (let i = 0; i < 7; i++) {
         const key = addDaysKey(weekKey, i);
-        const dayItems = items.filter(it => dateKey(it.start) === key).sort((a, b) => a.start - b.start);
-        html += `<div class="day ${key === today ? 'day--today' : ''}">
-            <div class="day__head"><span>${escapeHtml(fmtDay(pragueToDate(key)))}</span>
+        const closed = studioKey ? studioClosedReason(config.studios?.[studioKey], key) : null;
+        head += `<div class="cal__dh ${key === today ? 'cal__dh--today' : ''}">
+            <div class="cal__dh-top"><span>${escapeHtml(fmtDay(pragueToDate(key)))}</span>
             <button class="day__add" data-add="${key}" title="Přidat blok dostupnosti">+</button></div>
-            ${dayItems.map(itemHtml).join('') || '<span class="hint">—</span>'}
+            ${closed ? `<span class="cal__note">${escapeHtml(closed)}${studioKey ? ` (${escapeHtml(STUDIO_LABELS[studioKey])})` : ''}</span>` : ''}
         </div>`;
+        const dayItems = items.filter(it => dateKey(it.start) === key).sort((a, b) => a.start - b.start);
+        let now = '';
+        if (key === today) { const t = top(new Date()); if (t >= 0 && t <= height) now = `<div class="cal__now" style="top:${t}px"></div>`; }
+        body += `<div class="cal__col ${key === today ? 'cal__col--today' : ''} ${closed ? 'cal__col--closed' : ''}" data-col="${key}" style="height:${height}px">
+            ${dayItems.map(it => {
+                const t = top(it.start);
+                const endMin = dateKey(it.end) !== key ? 24 * 60 : minutesOf(it.end);
+                const h = Math.max(20, ((endMin - minutesOf(it.start)) / 60) * HOUR_PX - 2);
+                return itemHtml(it).replace('<div class="item', `<div style="top:${t}px;height:${h}px" title="${escapeHtml(`${fmtTime(it.start)}–${fmtTime(it.end)}`)}" class="item`);
+            }).join('')}${now}</div>`;
     }
-    $('week').innerHTML = html;
-    $('week').querySelectorAll('[data-add]').forEach(b => b.addEventListener('click', () => openBlock(null, b.dataset.add)));
-    $('week').querySelectorAll('[data-block]').forEach(b => b.addEventListener('click', () => openBlock(blocks.find(x => x.id === b.dataset.block))));
+    return `<div class="cal">${head}${body}</div>`;
 }
 
 // Typy bloků: 'flex' = volno (studio a/nebo doma), 'shift' = směna ve studiu.
@@ -206,24 +248,28 @@ function itemHtml(it) {
 function openingOn(studio, dayKey) {
     const hours = config.studios?.[studio]?.openingHours || {};
     const dow = String((new Date(`${dayKey}T12:00:00Z`).getUTCDay() + 6) % 7 + 1); // 1 = pondělí
-    return { set: Object.keys(hours).length > 0, h: hours[dow] || null };
+    const closed = studioClosedReason(config.studios?.[studio], dayKey);
+    return { set: Object.keys(hours).length > 0 || !!closed, h: closed ? null : hours[dow] || null, closed };
 }
 
 function openingWarning(usesStudio, studio, dayKey, from, to) {
     if (!usesStudio) return '';
-    const { set, h } = openingOn(studio, dayKey);
+    const { set, h, closed } = openingOn(studio, dayKey);
     if (!set) return '';
+    if (closed) return `Studio ${STUDIO_LABELS[studio]} má v tento den zavřeno (${closed}) — konzultace se klientům nenabídnou.`;
     if (!h) return `Studio ${STUDIO_LABELS[studio]} má v tento den zavřeno.`;
     if (from < h[0] || to > h[1]) return `Blok je mimo otevírací dobu studia (${h[0]}–${h[1]}).`;
     return '';
 }
+
+const plusHours = (hhmm, n) => { const [h, m] = hhmm.split(':').map(Number); return `${String(Math.min(23, h + n)).padStart(2, '0')}:${String(h + n > 23 ? 30 : m).padStart(2, '0')}`; };
 
 // Do 30 minut od založení jde blok opravit/smazat (překlep). Pak už jen admin —
 // dostupnost se nezrušuje, kdo nemůže přijít, volá Matoušovi.
 const GRACE_MS = 30 * 60000;
 const canEdit = (b) => isAdmin || (b.createdAt && Date.now() - toDate(b.createdAt).getTime() < GRACE_MS);
 
-function openBlock(block, dayKeyArg) {
+function openBlock(block, dayKeyArg, timeArg) {
     if (block && !canEdit(block)) {
         $('modalBody').innerHTML = `<h2>Blok dostupnosti</h2>
             <p class="hint">${escapeHtml(fmtDay(toDate(block.start)))} · ${fmtTime(block.start)}–${fmtTime(block.end)}</p>
@@ -255,8 +301,8 @@ function openBlock(block, dayKeyArg) {
         <div class="form-group" id="fStudioWrap"><label>Studio</label>
             <select id="fStudio">${studios.map(s => `<option value="${s}" ${s === studioSel ? 'selected' : ''}>${STUDIO_LABELS[s]}</option>`).join('')}</select></div>
         <div class="row2">
-            <div class="form-group"><label>Od</label><input type="time" id="fFrom" step="1800" value="${block ? timeKey(toDate(block.start)) : (kind === 'shift' && firstOpen ? firstOpen[0] : '09:00')}"></div>
-            <div class="form-group"><label>Do</label><input type="time" id="fTo" step="1800" value="${block ? timeKey(toDate(block.end)) : (kind === 'shift' && firstOpen ? firstOpen[1] : '13:00')}"></div>
+            <div class="form-group"><label>Od</label><input type="time" id="fFrom" step="1800" value="${block ? timeKey(toDate(block.start)) : (timeArg || '09:00')}"></div>
+            <div class="form-group"><label>Do</label><input type="time" id="fTo" step="1800" value="${block ? timeKey(toDate(block.end)) : (timeArg ? plusHours(timeArg, 4) : '13:00')}"></div>
         </div>
         <p class="hint hint--warn" id="fWarn"></p>
         ${block ? '' : '<p class="hint">Vypsanou dostupnost půjde 30 minut opravit, pak už ji měnit nejde.</p>'}
@@ -381,7 +427,7 @@ function openMySettings() {
         <div class="form-group"><label>Krátké představení</label><textarea id="msBio" rows="2" maxlength="400" placeholder="Na co se specializuješ — uvidí to klienti při výběru designéra.">${escapeHtml(r.bio || '')}</textarea></div>
         <div class="form-group"><label>Fotka (https:// odkaz)</label><input id="msPhoto" type="url" value="${escapeHtml(r.photoUrl || '')}"></div>
         <h3>Moje parametry schůzek</h3>
-        <div id="msOverrides">${overridesFormHtml(services.filter(sv => (r.services || []).includes(sv.id)), r.overrides, r.travelMin, config.travelMin ?? 60)}</div>
+        <div id="msOverrides">${msOverridesHtml(r.services || [], r.overrides, r.travelMin)}</div>
         <h3>Nastavuje admin</h3>
         <dl class="info-grid">
             <dt>Rezervace</dt><dd>${r.enabled ? 'zapnuté — klienti tě vidí' : 'vypnuté — klienti tě zatím nevidí'}</dd>
@@ -392,7 +438,18 @@ function openMySettings() {
         <p class="form-error" id="msErr"></p>
         <div class="btn-row"><button class="btn btn--primary" id="msSave">Uložit</button></div>`;
     $('msSave').addEventListener('click', saveMySettings);
+    // Parametry schůzek pro právě zaškrtnuté služby — hned po zaškrtnutí, ne až po uložení.
+    document.querySelectorAll('[data-ms-service]').forEach(el => el.addEventListener('change', () => {
+        const typed = readOverrides($('msOverrides'));
+        const checked = [...document.querySelectorAll('[data-ms-service]:checked')].map(e => e.getAttribute('data-ms-service'));
+        $('msOverrides').innerHTML = msOverridesHtml(checked, { ...(r.overrides || {}), ...typed.overrides }, typed.travelMin ?? r.travelMin);
+    }));
     $('modal').classList.add('open');
+}
+
+function msOverridesHtml(serviceIds, overrides, travelMin) {
+    if (!serviceIds.length) return '<p class="hint">Nejdřív výš zaškrtni, co děláš — pak tu jde u každé služby nastavit vlastní délku, předstih a pauzu.</p>';
+    return overridesFormHtml(services.filter(sv => serviceIds.includes(sv.id)), overrides, travelMin, config.travelMin ?? 60);
 }
 
 async function saveMySettings() {

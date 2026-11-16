@@ -57,7 +57,7 @@ import { requireAuth, signOutUser, initFirebase, CDN } from '../shared/auth-comm
 import {
     DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, STUDIOS, STATUS_LABELS, escapeHtml, toDate, fmtTime, fmtDay,
     pragueToDate, dateKey, mondayKey, addDaysKey,
-    DEMO_USERS, demoAvailability, demoBookings,
+    DEMO_USERS, demoAvailability, demoBookings, studioClosedReason, DEMO_CONFIG,
 } from './rezervace-common.js';
 
 const { collection, query, where, getDocs, getDoc, doc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
@@ -75,7 +75,7 @@ async function init() {
     let mySlug = null;
     if (DEMO) {
         users = DEMO_USERS; isAdmin = DEMO_ADMIN;
-        config = { studios: { praha: { openingHours: { 1: ['09:00', '18:00'], 2: ['09:00', '18:00'], 3: ['09:00', '18:00'], 4: ['09:00', '18:00'], 5: ['09:00', '18:00'] } } } };
+        config = DEMO_CONFIG;
         $('userName').textContent = 'Demo mód';
         document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
     } else {
@@ -151,6 +151,7 @@ async function load() {
 }
 
 function opening(key) {
+    if (studioClosedReason(config.studios?.[studio], key)) return null;
     const hours = config.studios?.[studio]?.openingHours || {};
     return hours[String((new Date(`${key}T12:00:00Z`).getUTCDay() + 6) % 7 + 1)] || null;
 }
@@ -171,7 +172,7 @@ function render() {
         ].sort((a, b) => a.t - b.t);
         html += `<div class="day ${key === today ? 'day--today' : ''} ${gap ? 'day--gap' : ''}">
             <div class="day__head"><span>${escapeHtml(fmtDay(pragueToDate(key)))}</span></div>
-            <div class="open">${h ? `Otevřeno ${h[0]}–${h[1]}` : 'Zavřeno'}</div>
+            <div class="open">${h ? `Otevřeno ${h[0]}–${h[1]}` : escapeHtml(studioClosedReason(config.studios?.[studio], key) || 'Zavřeno')}</div>
             ${gap ? cov.gaps.map(([a, b]) => `<div class="gap">Nikdo na směně ${fmtTime(a)}–${fmtTime(b)}</div>`).join('') : ''}
             ${items.map(x => x.html).join('') || (h ? '' : '<span class="hint">—</span>')}
         </div>`;

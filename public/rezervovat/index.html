@@ -71,6 +71,10 @@
         .hidden { display: none !important; }
         .spinner { width: 22px; height: 22px; border: 3px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        /* Vložení na web (?embed=1): bez vlastní hlavičky a pozadí, nadpis a menu dává stránka webu. */
+        body.embed { background: transparent; }
+        body.embed .wrap { max-width: none; padding: 0; }
+        body.embed header { display: none; }
     </style>
 </head>
 <body>
@@ -91,6 +95,24 @@ const API = params.get('api') || (LOCAL
     ? 'http://127.0.0.1:5001/koupelny-navstevnost/europe-central2'
     : 'https://europe-central2-koupelny-navstevnost.cloudfunctions.net');
 const DEMO = params.get('demo') === '1';
+// Vložení do stránky webu přes iframe (kód v Nastavení → Vložení na web).
+const EMBED = params.get('embed') === '1';
+const toParent = (msg) => { if (EMBED && window.parent !== window) window.parent.postMessage({ type: 'ks-rezervace', ...msg }, '*'); };
+if (EMBED) {
+    document.body.classList.add('embed');
+    // Výška obsahu → stránka webu nastaví iframe na celou výšku (bez vnitřního scrollbaru).
+    // Měří se obal obsahu, ne dokument — ten je vždy aspoň tak vysoký jako iframe, takže by se nikdy nezmenšil.
+    const wrap = document.querySelector('.wrap');
+    const sendHeight = () => toParent({ height: Math.ceil(wrap.getBoundingClientRect().height) + 4 });
+    new ResizeObserver(sendHeight).observe(wrap);
+    window.addEventListener('load', sendHeight);
+}
+// Posun na prvek: ve vloženém formuláři posune stránku webu (iframe sám nescrolluje).
+function scrollToEl(el) {
+    if (!el) return;
+    if (EMBED) toParent({ scrollTo: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 16) });
+    else el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 const TZ = 'Europe/Prague';
 
 const state = {
@@ -326,7 +348,7 @@ function renderSlots() {
     box.querySelectorAll('[data-time]').forEach(b => b.addEventListener('click', () => {
         state.slot = b.dataset.time;
         render();
-        $('formStep')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        scrollToEl($('formStep'));
     }));
     $('more').addEventListener('click', () => {
         const next = new Date(`${lastDay}T12:00:00Z`);
@@ -356,7 +378,7 @@ async function submit(e) {
                 studio: isHome() ? null : state.place, oblast: isHome() ? state.place : null,
                 designer: state.designer !== 'any' ? state.designer : null,
                 name: val('name'), phone: val('phone'), email: val('email'), address: val('address'), note: val('note'),
-                web: val('web'), utm, sourceUrl: location.href,
+                web: val('web'), utm, sourceUrl: params.get('src_url') || location.href,
             }),
         });
         done(res);
@@ -378,6 +400,7 @@ function done(res) {
         <p class="muted" style="margin-top:12px">${requested
             ? 'Brzy vám zavoláme, domluvíme detaily a pošleme zálohovou fakturu. Termín je pro vás předběžně držený.'
             : 'Kdyby vám termín nevyhovoval, dejte nám prosím vědět telefonicky.'}</p></div>`;
+    scrollToEl($('title'));
 }
 
 // ── demo (?demo=1): bez sítě ──

@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { permanentShiftBlocks, studioCoverage } = require("./smeny");
+const { permanentShiftBlocks, studioCoverage, studioClosedOn } = require("./smeny");
 const { fromPrague } = require("../shared/cas");
 
 const P = (y, m, d, h, min = 0) => fromPrague(y, m, d, h * 60 + min);
@@ -47,4 +47,19 @@ test("pokrytí počítá i se směnami uloženými jako Firestore Timestamp", ()
   const days = studioCoverage("praha", STUDIO, shifts, P(2026, 11, 16, 0), P(2026, 11, 17, 0));
   assert.equal(days[0].covered, true);
   assert.deepEqual(days[0].staff, ["a"]);
+});
+
+test("zavřené dny a svátky: studio se samo zase otevře", () => {
+  const cfg = { ...STUDIO, closures: [{ from: "2026-12-23", to: "2026-12-27", note: "Vánoce" }] };
+  assert.equal(studioClosedOn(cfg, 2026, 12, 22), false);
+  assert.equal(studioClosedOn(cfg, 2026, 12, 23), true);
+  assert.equal(studioClosedOn(cfg, 2026, 12, 27), true);
+  assert.equal(studioClosedOn(cfg, 2026, 12, 28), false);
+  // 17. 11. je svátek: bez holidayOpen zavřeno, s ním běžná otevírací doba
+  assert.equal(studioClosedOn(STUDIO, 2026, 11, 17), true);
+  assert.equal(studioClosedOn({ ...STUDIO, holidayOpen: true }, 2026, 11, 17), false);
+  const days = studioCoverage("praha", { ...STUDIO, holidayOpen: true }, [], P(2026, 11, 17, 0), P(2026, 11, 18, 0));
+  assert.notEqual(days[0].open, null);
+  // jednodenní zavírka bez „do“
+  assert.equal(studioClosedOn({ closures: [{ from: "2026-12-31" }] }, 2026, 12, 31), true);
 });

@@ -34,6 +34,40 @@ export const RAYNET_STATE_LABELS = {
     not_configured: 'Raynet nenapojen',
 };
 
+// ── státní svátky a zavřené dny studia ──
+// Kopie functions/shared/cas.js (isHoliday) a functions/rezervace/smeny.js
+// (studioClosedOn) — hosting a functions se nasazují zvlášť, měnit obojí.
+const FIXED_HOLIDAYS = new Set(['01-01', '05-01', '05-08', '07-05', '07-06', '09-28', '10-28', '11-17', '12-24', '12-25', '12-26']);
+const HOLIDAY_NAMES = {
+    '01-01': 'Nový rok', '05-01': 'Svátek práce', '05-08': 'Den vítězství', '07-05': 'Cyril a Metoděj', '07-06': 'Jan Hus',
+    '09-28': 'Den české státnosti', '10-28': 'Vznik Československa', '11-17': 'Den boje za svobodu', '12-24': 'Štědrý den',
+    '12-25': '1. svátek vánoční', '12-26': '2. svátek vánoční',
+};
+function easterSunday(y) {
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    return Date.UTC(y, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1);
+}
+// Název svátku pro den 'YYYY-MM-DD', jinak null.
+export function holidayName(key) {
+    const md = key.slice(5);
+    if (FIXED_HOLIDAYS.has(md)) return HOLIDAY_NAMES[md];
+    const [y, m, d] = key.split('-').map(Number);
+    const t = Date.UTC(y, m - 1, d), easter = easterSunday(y);
+    if (t === easter - 2 * 86400000) return 'Velký pátek';
+    if (t === easter + 86400000) return 'Velikonoční pondělí';
+    return null;
+}
+// Zavřené studio v den 'YYYY-MM-DD' → důvod (text), jinak null.
+export function studioClosedReason(studioCfg, key) {
+    const c = (studioCfg?.closures || []).find(x => x?.from && key >= x.from && key <= (x.to || x.from));
+    if (c) return c.note ? `Zavřeno — ${c.note}` : 'Zavřeno';
+    const h = holidayName(key);
+    if (h && !studioCfg?.holidayOpen) return `Svátek — ${h}`;
+    return null;
+}
+
 // ── Cloud Function ──
 let _call = null;
 export async function akce(action, data = {}) {
@@ -158,10 +192,21 @@ export const DEMO_SERVICES = [
     { id: 'navrh-doma', name: 'Návrh u vás doma', type: 'home', durationMin: 120, minLeadHours: 48, horizonDays: 60, bufferMin: 0, requiresConfirmation: true, priceText: '4 990 Kč vč. DPH', active: true, order: 2 },
 ];
 
+// Ukázková konfigurace studií pro demo (otevírací doba, zavřené dny).
+const _demoDay = (n) => { const t = new Date(); t.setDate(t.getDate() + n); return t.toLocaleDateString('sv-SE', { timeZone: TZ }); };
+export const DEMO_CONFIG = {
+    travelMin: 60,
+    studios: {
+        praha: { name: 'Praha', street: 'Jesenická 410', city: 'Dobřejovice', zipCode: '', openingHours: { 2: ['12:00', '19:00'], 4: ['12:00', '19:00'], 6: ['10:00', '16:00'] },
+            holidayOpen: false, closures: [{ from: _demoDay(9), to: _demoDay(11), note: 'inventura' }] },
+        brno: { name: 'Brno', openingHours: { 2: ['12:00', '19:00'], 4: ['12:00', '19:00'], 6: ['10:00', '16:00'] }, holidayOpen: true, closures: [] },
+    },
+};
+
 export const DEMO_USERS = {
-    demo: { name: 'Demo Designérka', platformRole: 'admin', active: true, studios: ['praha'], reservations: { enabled: true, studios: ['praha'], services: ['konzultace-studio', 'navrh-doma'], raynetUserId: 12 } },
-    'marek-kopriva': { name: 'Marek Kopřiva', active: true, studios: ['praha'], reservations: { enabled: true, studios: ['praha', 'brno'], services: ['konzultace-studio'], raynetUserId: 15 } },
-    'valerie': { name: 'Valerie', active: true, studios: ['brno'], reservations: { enabled: false, studios: [], services: [], raynetUserId: null } },
+    demo: { name: 'Demo Designérka', department: 'sales', position: 'Designérka', platformRole: 'admin', active: true, studios: ['praha'], reservations: { enabled: true, studios: ['praha'], services: ['konzultace-studio', 'navrh-doma'], raynetUserId: 12 } },
+    'marek-kopriva': { name: 'Marek Kopřiva', department: 'sales', position: 'Designér', active: true, studios: ['praha'], reservations: { enabled: true, studios: ['praha', 'brno'], services: ['konzultace-studio'], raynetUserId: 15 } },
+    'valerie': { name: 'Valerie', department: 'sales', position: 'Designérka', active: true, studios: ['brno'], reservations: { enabled: false, studios: [], services: [], raynetUserId: null } },
 };
 
 export function demoAvailability() {

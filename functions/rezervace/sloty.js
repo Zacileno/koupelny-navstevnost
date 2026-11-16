@@ -80,7 +80,9 @@ function gapMs(newType, otherType, bufMs, travelMs) {
  * @param {string[]} [p.designers]    povolení designéři (přiřazení ke službě/studiu)
  * @param {number} [p.stepMin=30]
  * @param {boolean} [p.ignoreLead]    interní uživatel přebíjí předstih
- * @param {boolean} [p.blockHolidays=true] ve státní svátek nenabízet nic
+ * @param {boolean} [p.blockHolidays=true] ve státní svátek nenabízet nic (u studia jen bez p.studioClosed)
+ * @param {Function} [p.studioClosed] (studio, y, m, d) → true = studio má zavřeno (zavřené dny, svátek
+ *                                    bez „ve svátek otevřeno“) — konzultace ve studiu se nenabízí
  * @param {string} [p.excludeBookingId] při přesunu ignorovat přesouvanou rezervaci
  * @param {number} [p.travelMin=0]    čas na přesun před a po návrhu u klienta doma
  * @param {Function} [p.serviceFor]   slug → služba s vlastními parametry designéra (serviceForDesigner)
@@ -153,9 +155,12 @@ function computeSlots(p) {
     const blockEnd = toMs(a.end);
     for (let t = alignUp(Math.max(blockStart, minStart), stepMin); t + durMs <= blockEnd && t < maxStart; t += stepMin * MIN_MS) {
       const end = t + durMs;
-      if (blockHolidays) {
+      // Studio: o svátcích a zavřených dnech rozhoduje nastavení studia.
+      // Návrh doma (a studio bez nastavení): globální „ve svátek nenabízet“.
+      const studioRule = service.type === "studio" && a.studio && p.studioClosed;
+      if (studioRule || blockHolidays) {
         const { y, m, d } = pragueParts(new Date(t));
-        if (isHoliday(y, m, d)) continue;
+        if (studioRule ? p.studioClosed(a.studio, y, m, d) : isHoliday(y, m, d)) continue;
       }
       if (busy.some(([s, e]) => overlaps(t, end, s, e))) continue;
       const key = `${a.designerSlug}|${t}`;

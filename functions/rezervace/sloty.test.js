@@ -218,3 +218,23 @@ test("vlastní čas na přesun designéra", () => {
   const studio = computeSlots({ service: STUDIO, availability, bookings, now, studio: "praha", travelMin: 60, travelFor: () => 30 }).map((s) => hhmm(s.start));
   assert.ok(studio.includes("12:30") && !studio.includes("12:00"));
 });
+
+test("studio: zavřený den studia se nenabízí, návrh doma ano", () => {
+  const now = P(2026, 12, 1, 8);
+  const closed = (studio, y, m, d) => studio === "praha" && y === 2026 && m === 12 && d === 10;
+  const avail = [bothBlock(P(2026, 12, 10, 9), P(2026, 12, 10, 13)), bothBlock(P(2026, 12, 11, 9), P(2026, 12, 11, 13))];
+  const studio = computeSlots({ service: STUDIO, availability: avail, now, studio: "praha", studioClosed: closed });
+  assert.ok(studio.length > 0);
+  assert.ok(studio.every((s) => s.start >= P(2026, 12, 11, 0)));
+  const home = computeSlots({ service: HOME, availability: avail, now, studioClosed: closed });
+  assert.ok(home.some((s) => s.start < P(2026, 12, 11, 0)));
+});
+
+test("studio: svátek řídí nastavení studia, ne globální přepínač", () => {
+  const now = P(2026, 11, 10, 8);
+  const avail = [studioBlock(P(2026, 11, 17, 9), P(2026, 11, 17, 11))]; // 17. 11. svátek
+  const open = computeSlots({ service: STUDIO, availability: avail, now, studio: "praha", studioClosed: () => false });
+  assert.equal(open.length, 3);
+  const legacy = computeSlots({ service: STUDIO, availability: avail, now, studio: "praha" });
+  assert.equal(legacy.length, 0);
+});

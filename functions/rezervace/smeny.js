@@ -27,12 +27,22 @@ function eachDay(from, to, fn) {
   }
 }
 
+// Má studio v daný den zavřeno mimo běžnou otevírací dobu? Ručně zadané
+// zavřené dny (`closures`: [{ from, to: 'YYYY-MM-DD', note }], např. Vánoce)
+// a státní svátky — ty jen pokud studio nemá `holidayOpen` (pak platí běžná
+// otevírací doba). Po skončení zavřených dnů se studio otevře samo.
+function studioClosedOn(studioCfg, y, m, d) {
+  const key = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  if ((studioCfg?.closures || []).some((c) => c?.from && key >= c.from && key <= (c.to || c.from))) return true;
+  return !studioCfg?.holidayOpen && isHoliday(y, m, d);
+}
+
 // Otevírací doba studia v daný den → [start, end] (ms), nebo null (zavřeno / svátek).
 function openingOn(studioCfg, y, m, d) {
   const hours = studioCfg?.openingHours || {};
   const isoDow = ((dayOfWeek(y, m, d) + 6) % 7) + 1; // 1 = pondělí
   const h = hours[String(isoDow)];
-  if (!h || isHoliday(y, m, d)) return null;
+  if (!h || studioClosedOn(studioCfg, y, m, d)) return null;
   return [fromPrague(y, m, d, toMin(h[0])).getTime(), fromPrague(y, m, d, toMin(h[1])).getTime()];
 }
 
@@ -91,4 +101,4 @@ function studioCoverage(studioKey, studioCfg, shifts, from, to) {
   return days;
 }
 
-module.exports = { openingOn, permanentShiftBlocks, studioCoverage };
+module.exports = { studioClosedOn, openingOn, permanentShiftBlocks, studioCoverage };

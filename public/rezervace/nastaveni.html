@@ -19,6 +19,15 @@
         .tip { position: fixed; z-index: 300; width: 260px; background: var(--surface3); color: var(--text); border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; font-weight: 500; line-height: 1.45; text-transform: none; letter-spacing: 0; box-shadow: var(--shadow); pointer-events: none; }
         .tip[hidden] { display: none; }
         @media (max-width: 760px) { .hours { grid-template-columns: 1fr; } .hours .hd { display: none; } }
+        /* Hlavička nad každým designérem, ať je u dlouhého seznamu vidět, co je co */
+        #designersTbl tr.dhead th { padding-top: 18px; }
+        #designersTbl tr.dhead:first-child th { padding-top: 8px; }
+        #designersTbl tr[data-profile] td { border-bottom: 2px solid var(--border2); padding-bottom: 14px; }
+        .closures { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+        .closure { display: grid; grid-template-columns: 150px 150px 1fr auto; gap: 6px; align-items: center; }
+        .closure input { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 5px 7px; font-family: var(--font); font-size: 12px; color-scheme: dark; }
+        @media (max-width: 760px) { .closure { grid-template-columns: 1fr 1fr; } }
+        .snippet { width: 100%; min-height: 150px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
     </style>
 </head>
 <body>
@@ -43,23 +52,33 @@
     <div class="section-h">Služby — výchozí pro všechny</div>
     <p class="hint" style="margin-bottom:8px">Výchozí hodnoty pro všechny designéry. Délku, „nejdřív/nejpozději za“ a pauzu si může každý upravit pro sebe (Moje nastavení), ty to můžeš u konkrétního člověka níž. Cenu a potvrzování CX mění jen admin. Na ikonu <span class="info" aria-hidden="true">i</span> najeď (nebo klikni) pro vysvětlení.</p>
     <div class="card table-wrap"><table class="tbl" id="servicesTbl"></table></div>
+    <div class="btn-row" style="margin-top:8px"><button class="btn btn--ghost btn--sm" id="addService">+ Přidat službu</button></div>
 
     <div class="section-h">Designéři</div>
     <p class="hint" style="margin-bottom:8px">Studia, oblasti, služby a profil si každý může upravit i sám v „Můj kalendář → Moje nastavení“. Jen tady (admin): zapnutí rezervací, Raynet ID (vypíše <code>node scripts/set-raynet-config.js --check</code>), stálá směna a „Spravuje všechny rezervace“.</p>
+    <p class="hint" style="margin-bottom:8px"><strong>Přidat designéra:</strong> když ho tu nevidíš ve „Všichni lidé“, založ ho v <a href="../admin/lide.html">Admin konzoli → Lidé</a>. Pak mu tu zaškrtni Rezervace, studia a služby a dej Uložit. <strong>Odebrat:</strong> odškrtni Rezervace a Uložit — klienti ho přestanou vidět, domluvené rezervace zůstanou. Když z firmy odchází, deaktivuj ho v Admin konzoli (vypne i rezervace).</p>
+    <div class="toolbar" style="margin-bottom:8px"><label class="hint">Zobrazit:
+        <select id="designerFilter" style="margin-left:4px"><option value="on">Jen se zapnutými rezervacemi</option><option value="all">Všichni lidé</option></select></label></div>
     <div class="card table-wrap"><table class="tbl" id="designersTbl"></table></div>
 
     <div class="section-h">Studia a otevírací doby</div>
-    <p class="hint" style="margin-bottom:8px">Formát „09:00-18:00“, prázdné = zavřeno. Bloky mimo otevírací dobu kalendář jen upozorní, nezablokuje.</p>
+    <p class="hint" style="margin-bottom:8px">Formát „09:00-18:00“, prázdné = zavřeno. Bloky mimo otevírací dobu kalendář jen upozorní, nezablokuje. <strong>Svátky a zavřené dny:</strong> ve svátek má studio zavřeno, pokud nezaškrtneš „Ve státní svátek otevřeno“. Zavřené dny (např. Vánoce) zadej jako od–do — konzultace ve studiu se v ty dny nenabízí, stálé směny se nepočítají a další den se studio otevře samo.</p>
     <div class="card" id="studiosBox"></div>
 
     <div class="section-h">Obecné</div>
     <div class="card" id="generalBox"></div>
     <div class="btn-row"><button class="btn btn--primary" id="saveConfig">Uložit studia a obecné</button></div>
+
+    <div class="section-h">Vložení na web</div>
+    <p class="hint" style="margin-bottom:8px">Vlož tenhle kód do HTML bloku na stránce webu (nadpis, menu a patička zůstanou webu). Výška se přizpůsobuje sama. Parametry z adresy stránky (UTM, <code>?designer=</code>, <code>?sluzba=</code>, <code>?studio=</code>) se předají do formuláře. Pro konkrétního designéra nebo službu stačí na stránce webu do kódu dopsat <code>data-designer="slug"</code> / <code>data-sluzba="id"</code>.</p>
+    <div class="card"><textarea class="snippet" id="embedSnippet" readonly></textarea>
+        <div class="btn-row"><button class="btn btn--ghost btn--sm" id="copySnippet">Zkopírovat kód</button>
+        <a class="btn btn--ghost btn--sm" href="../rezervovat/?embed=1&demo=1" target="_blank" rel="noopener">Náhled vloženého formuláře (demo)</a></div></div>
 </div>
 
 <script type="module">
 import { requireAuth, signOutUser, initFirebase, CDN, showToast } from '../shared/auth-common.js';
-import { DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES, DEFAULT_HOME_REGIONS, overridesFormHtml, readOverrides } from './rezervace-common.js';
+import { DEMO, DEMO_ADMIN, akce, STUDIO_LABELS, TYPE_LABELS, escapeHtml, DEMO_USERS, DEMO_SERVICES, DEMO_CONFIG, DEFAULT_HOME_REGIONS, overridesFormHtml, readOverrides, holidayName, dateKey } from './rezervace-common.js';
 
 const { collection, getDocs, getDoc, doc, setDoc, Timestamp } = await import(`${CDN}/firebase-firestore.js`);
 
@@ -75,7 +94,7 @@ async function init() {
     if (DEMO) {
         // Nastavení je jen pro admina — designér sem nemá přístup ani v demu.
         if (!DEMO_ADMIN) { location.href = 'kalendar.html?demo=1&role=designer'; return; }
-        users = DEMO_USERS; services = DEMO_SERVICES;
+        users = DEMO_USERS; services = DEMO_SERVICES.map(x => ({ ...x })); config = DEMO_CONFIG;
         $('userName').textContent = 'Demo mód';
         document.querySelectorAll('[data-keep]').forEach(a => a.href += '?demo=1' + (new URLSearchParams(location.search).get('role') === 'designer' ? '&role=designer' : ''));
     } else {
@@ -94,8 +113,14 @@ async function init() {
     renderServices();
     renderDesigners();
     renderStudios();
+    bindStudios();
     renderGeneral();
+    renderEmbed();
     $('saveConfig').addEventListener('click', saveConfig);
+    $('addService').addEventListener('click', addService);
+    $('designerFilter').addEventListener('change', renderDesigners);
+    // Výchozí filtr: zatím nikdo nemá rezervace zapnuté → ukázat všechny.
+    if (!Object.values(users).some(u => u.reservations?.enabled)) { $('designerFilter').value = 'all'; renderDesigners(); }
 }
 
 // ── vysvětlivky u ikony „i“ ──
@@ -124,7 +149,9 @@ document.addEventListener('scroll', hideTip, true);
 
 // [pole, nadpis, typ, vysvětlivka pod ikonou „i“]
 const SERVICE_COLS = [
-    ['name', 'Název', 'text', 'Jak se služba jmenuje ve formuláři pro klienty.'],
+    ['name', 'Název', 'text', 'Jak se služba jmenuje ve formuláři pro klienty. Přejmenování nevadí — statistiky se počítají podle služby, ne podle názvu.'],
+    ['type', 'Kde', 'type', 'Ve studiu = klient přijde do studia (vybírá studio). U klienta doma = designér jede za klientem (vybírá oblast). U existující služby už nejde změnit — kvůli domluveným rezervacím; když je potřeba, založ novou a starou vypni.'],
+    ['description', 'Popis pro klienty', 'text', 'Krátký text pod názvem služby ve formuláři.'],
     ['durationMin', 'Délka (min)', 'number', 'Jak dlouho schůzka trvá. Na tolik minut se designérovi zablokuje kalendář.'],
     ['minLeadHours', 'Nejdřív za (hodin)', 'number', 'Nejkratší doba od rezervace do schůzky. 1 = klient může rezervovat termín za hodinu. 48 = nejdřív za 2 dny (rezervuje-li ve středu v 15:00, první nabídnutý termín je v pátek v 15:00).'],
     ['horizonDays', 'Nejpozději za (dní)', 'number', 'Jak daleko do budoucna klient termíny vidí. 60 = dnes si může rezervovat nejpozději termín za 60 dní, i kdyby designér měl vypsané volno později.'],
@@ -138,14 +165,27 @@ const infoIcon = (text) => `<span class="info" tabindex="0" role="button" aria-l
 function renderServices() {
     const cell = (s, [key, , type]) => {
         const v = s[key];
+        if (type === 'type') return s._new
+            ? `<select data-k="type">${Object.entries(TYPE_LABELS).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`
+            : `<span class="hint" style="white-space:nowrap">${escapeHtml(TYPE_LABELS[v] || v || '—')}</span>`;
         if (type === 'bool') return `<input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}>`;
         return `<input type="${type}" data-k="${key}" value="${escapeHtml(v ?? '')}" ${type === 'number' ? 'min="0"' : ''}>`;
     };
     $('servicesTbl').innerHTML = `<tr>${SERVICE_COLS.map(c => `<th>${c[1]}&nbsp;${infoIcon(c[3])}</th>`).join('')}<th></th></tr>` +
-        services.map(s => `<tr data-id="${s.id}">${SERVICE_COLS.map(c => `<td>${cell(s, c)}</td>`).join('')}
+        services.map(s => `<tr data-id="${s.id}" ${s._new ? 'data-new' : ''}>${SERVICE_COLS.map(c => `<td>${cell(s, c)}</td>`).join('')}
             <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td></tr>`).join('');
     $('servicesTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveService(btn.closest('tr'))));
 }
+
+// Nová služba: řádek v tabulce, ID se vytvoří z názvu při prvním uložení.
+function addService() {
+    if (services.some(s => s._new)) { showToast('Nejdřív ulož rozpracovanou novou službu'); return; }
+    services.push({ id: '_new', _new: true, name: '', type: 'studio', description: '', durationMin: 60, minLeadHours: 1, horizonDays: 60, bufferMin: 0, priceText: '', requiresConfirmation: false, active: true });
+    renderServices();
+    $('servicesTbl').querySelector('tr[data-new] [data-k="name"]')?.focus();
+}
+
+const slugify = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 async function saveService(tr) {
     const data = {};
@@ -154,9 +194,24 @@ async function saveService(tr) {
         data[el.dataset.k] = col[2] === 'bool' ? el.checked : col[2] === 'number' ? Math.max(0, Number(el.value) || 0) : el.value.trim();
     });
     if (!data.name || data.durationMin < 15) { showToast('Název a délka (min. 15 min) jsou povinné', 'error'); return; }
-    if (DEMO) { showToast('Demo: služba by se uložila'); return; }
-    await setDoc(doc(db, 'res_services', tr.dataset.id), { ...data, updatedAt: Timestamp.now() }, { merge: true });
-    showToast('Služba uložena', 'success');
+    const isNew = tr.hasAttribute('data-new');
+    let id = tr.dataset.id;
+    if (isNew) {
+        id = slugify(data.name) || 'sluzba';
+        while (services.some(s => s.id === id)) id += '-2';
+        data.order = Math.max(0, ...services.filter(s => !s._new).map(s => s.order ?? 0)) + 1;
+    }
+    if (!DEMO) await setDoc(doc(db, 'res_services', id), { ...data, updatedAt: Timestamp.now() }, { merge: true });
+    if (isNew) {
+        const i = services.findIndex(s => s._new);
+        services[i] = { id, ...data };
+        renderServices();
+        renderDesigners();
+        showToast(DEMO ? 'Demo: služba by se založila' : 'Služba založena — teď ji zaškrtni designérům, kteří ji dělají', 'success');
+        return;
+    }
+    Object.assign(services.find(s => s.id === id) || {}, data);
+    showToast(DEMO ? 'Demo: služba by se uložila' : 'Služba uložena', 'success');
 }
 
 // ── designéři ──
@@ -166,13 +221,15 @@ function renderDesigners() {
         // Adresář lidí (users/{slug} s oddělením — ne staré users/{uid} z Adaptace), bez
         // externích. `active` řídí jen Návštěvnost, proto i neaktivní s rolí/rezervacemi.
         .filter(([, u]) => u.department && !u.external && (u.active !== false || u.platformRole || u.reservations))
+        .filter(([, u]) => $('designerFilter').value === 'all' || u.reservations?.enabled)
         .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'cs'));
-    $('designersTbl').innerHTML = `<tr><th>Člověk</th><th>Rezervace</th><th>Studia (konzultace)</th><th>Oblasti (návrh doma)</th><th>Služby</th><th>Raynet ID</th><th></th></tr>` +
+    const head = `<tr class="dhead"><th>Člověk</th><th>Rezervace</th><th>Studia (konzultace)</th><th>Oblasti (návrh doma)</th><th>Služby</th><th>Raynet ID</th><th></th></tr>`;
+    $('designersTbl').innerHTML = (list.length ? '' : '<tr><td class="hint">Zatím nikdo nemá zapnuté rezervace — přepni nahoře na „Všichni lidé“.</td></tr>') +
         list.map(([slug, u]) => {
             const r = u.reservations || {};
             // Bez vyplněných oblastí jezdí designér tam, kde má studia (stejně jako ve functions).
             const regions = Array.isArray(r.homeRegions) ? r.homeRegions : (r.studios || []);
-            return `<tr data-slug="${slug}">
+            return `${head}<tr data-slug="${slug}">
                 <td>${escapeHtml(u.name || slug)}<br><span class="hint">${escapeHtml(u.position || '')}</span></td>
                 <td><input type="checkbox" data-enabled ${r.enabled ? 'checked' : ''}></td>
                 <td><div class="check-list">${Object.entries(STUDIO_LABELS).map(([k, v]) => `<label><input type="checkbox" data-studio="${k}" ${(r.studios || []).includes(k) ? 'checked' : ''}>${v}</label>`).join('')}</div></td>
@@ -245,8 +302,39 @@ function renderStudios() {
                 const v = h[String(i + 1)];
                 return `<input data-day="${i + 1}" placeholder="${d} zavřeno" value="${v ? `${v[0]}-${v[1]}` : ''}">`;
             }).join('')}</div>
+            <div class="check-list" style="margin-top:8px"><label><input type="checkbox" data-holiday-open ${s.holidayOpen ? 'checked' : ''}> Ve státní svátek otevřeno (běžná otevírací doba)</label></div>
+            <div class="closures" data-closures>${(s.closures || []).map(closureRow).join('')}</div>
+            <button class="btn btn--ghost btn--sm" data-add-closure style="margin-top:6px">+ Zavřené dny</button>
         </div>`;
-    }).join('');
+    }).join('') + `<p class="hint">Nejbližší svátky: ${escapeHtml(upcomingHolidays())}</p>`;
+}
+
+function closureRow(c = {}) {
+    return `<div class="closure"><input type="date" data-c="from" value="${escapeHtml(c.from || '')}" aria-label="Zavřeno od">
+        <input type="date" data-c="to" value="${escapeHtml(c.to || '')}" aria-label="Zavřeno do (včetně)">
+        <input type="text" data-c="note" maxlength="80" placeholder="Důvod (např. Vánoce) — jen pro nás" value="${escapeHtml(c.note || '')}">
+        <button class="btn btn--ghost btn--sm" data-del-closure title="Odebrat">×</button></div>`;
+}
+
+// Nejbližší státní svátky (do roka) — pro představu, kdy studio zavře samo.
+function upcomingHolidays() {
+    const out = [];
+    const t = new Date();
+    for (let i = 0; i < 366 && out.length < 6; i++) {
+        const key = dateKey(new Date(t.getTime() + i * 86400000));
+        const n = holidayName(key);
+        if (n) out.push(`${Number(key.slice(8))}. ${Number(key.slice(5, 7))}. ${n}`);
+    }
+    return out.join(' · ');
+}
+
+function bindStudios() {
+    $('studiosBox').addEventListener('click', (e) => {
+        const add = e.target.closest('[data-add-closure]');
+        if (add) add.previousElementSibling.insertAdjacentHTML('beforeend', closureRow());
+        const del = e.target.closest('[data-del-closure]');
+        if (del) del.closest('.closure').remove();
+    });
 }
 
 function renderGeneral() {
@@ -265,7 +353,7 @@ function renderGeneral() {
             <div class="form-group"><label>Čas na přesun u návrhu doma (min) <span class="info" tabindex="0" data-tip="Kolik minut musí zůstat volných před a po návrhu u klienta doma (cesta). Mezi dvěma konzultacemi ve studiu se nepočítá.">i</span></label><input id="gTravel" type="number" min="0" step="15" value="${config.travelMin ?? 60}"></div>
         </div>
         <div class="check-list" style="margin-bottom:14px">
-            <label><input type="checkbox" id="gHolidays" ${config.blockHolidays !== false ? 'checked' : ''}> Ve státní svátek nic nenabízet</label>
+            <label><input type="checkbox" id="gHolidays" ${config.blockHolidays !== false ? 'checked' : ''}> Návrh u klienta doma ve státní svátek nenabízet (studia mají vlastní nastavení výš)</label>
         </div>
         <div class="row2">
             <div class="form-group"><label>Raynet — zakládat jako</label><select id="rWrite">
@@ -306,9 +394,19 @@ async function saveConfig() {
         });
         const f = (k) => box.querySelector(`[data-f="${k}"]`).value.trim();
         const street = f('street'), city = f('city'), zipCode = f('zipCode');
-        studios[box.dataset.studioBox] = { name: f('name'), street, city, zipCode, address: [street, [zipCode, city].filter(Boolean).join(' ')].filter(Boolean).join(', '), openingHours };
+        const closures = [];
+        box.querySelectorAll('.closure').forEach(row => {
+            const c = (k) => row.querySelector(`[data-c="${k}"]`).value.trim();
+            const from = c('from'), to = c('to') || c('from');
+            if (!from) return;
+            if (to < from) { bad = true; row.querySelector('[data-c="to"]').style.borderColor = 'var(--danger)'; return; }
+            closures.push({ from, to, note: c('note') });
+        });
+        closures.sort((a, b) => a.from.localeCompare(b.from));
+        studios[box.dataset.studioBox] = { name: f('name'), street, city, zipCode, address: [street, [zipCode, city].filter(Boolean).join(' ')].filter(Boolean).join(', '), openingHours,
+            holidayOpen: box.querySelector('[data-holiday-open]').checked, closures };
     });
-    if (bad) { showToast('Opravte otevírací dobu (formát 09:00-18:00)', 'error'); return; }
+    if (bad) { showToast('Opravte otevírací dobu (formát 09:00-18:00) nebo zavřené dny (do musí být po od)', 'error'); return; }
     const busyEntities = [$('rBusyEvent').checked && 'event', $('rBusyMeeting').checked && 'meeting'].filter(Boolean);
     const data = {
         studios,
@@ -331,6 +429,36 @@ async function saveConfig() {
     config = { ...config, ...data };
     await setDoc(doc(db, 'config', 'rezervace'), config);
     showToast('Nastavení uloženo (functions si ho načtou do minuty)', 'success');
+}
+
+// ── vložení na web (iframe) ──
+function renderEmbed() {
+    const base = `${location.origin}/rezervovat/`;
+    $('embedSnippet').value = `<div id="ks-rezervace" data-designer="" data-sluzba=""></div>
+<script>
+(function () {
+  var box = document.getElementById('ks-rezervace');
+  var q = new URLSearchParams(location.search);
+  ['designer', 'sluzba', 'studio'].forEach(function (k) { if (box.dataset[k]) q.set(k, box.dataset[k]); });
+  q.set('embed', '1');
+  q.set('src_url', location.href.split('#')[0]);
+  var f = document.createElement('iframe');
+  f.src = '${base}?' + q.toString();
+  f.title = 'Rezervace u designéra';
+  f.style.cssText = 'width:100%;border:0;display:block;height:600px';
+  f.setAttribute('scrolling', 'no');
+  box.appendChild(f);
+  window.addEventListener('message', function (e) {
+    if (e.origin !== '${location.origin}' || !e.data || e.data.type !== 'ks-rezervace') return;
+    if (e.data.height) f.style.height = e.data.height + 'px';
+    if (typeof e.data.scrollTo === 'number') window.scrollTo({ top: f.getBoundingClientRect().top + window.scrollY + e.data.scrollTo - 90, behavior: 'smooth' });
+  });
+})();
+<\/script>`;
+    $('copySnippet').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText($('embedSnippet').value); showToast('Kód zkopírován', 'success'); }
+        catch { $('embedSnippet').select(); showToast('Označeno — zkopíruj Cmd+C'); }
+    });
 }
 
 init().catch(err => {

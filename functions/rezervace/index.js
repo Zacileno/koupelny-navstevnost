@@ -99,7 +99,7 @@ async function loadService(db, id) {
 // Při odchodu člověka vypne rezervace offboardEmployee.
 async function loadDesigners(db) {
   const snap = await db.collection("users").where("reservations.enabled", "==", true).get();
-  return snap.docs.map((d) => ({ slug: d.id, name: d.data().name, position: d.data().position, reservations: d.data().reservations || {} }));
+  return snap.docs.map((d) => ({ slug: d.id, name: d.data().name, position: d.data().position, phone: d.data().phone || "", email: d.data().email || "", reservations: d.data().reservations || {} }));
 }
 
 // Bloky/rezervace se načítají jedním rozsahovým dotazem podle začátku (bez
@@ -156,7 +156,7 @@ async function slotContext(db, { service, studio, region, designer, from, to, cf
 
 const cut = (v, n = MAX_FIELD_LEN) => (typeof v === "string" ? v.trim().slice(0, n) : "");
 
-function validateClient(input, service) {
+function validateClient(input, service, { requireEmail = false } = {}) {
   const name = cut(input.name, 200);
   const phone = normalizePhone(cut(input.phone, 100));
   const emailRaw = cut(input.email, 200).toLowerCase();
@@ -165,6 +165,8 @@ function validateClient(input, service) {
   if (!name) throw new HttpsError("invalid-argument", "Vyplňte prosím jméno.");
   if (!phone) throw new HttpsError("invalid-argument", "Zadejte prosím platné telefonní číslo.");
   if (emailRaw && !email) throw new HttpsError("invalid-argument", "E-mail nemá platný tvar.");
+  // Z webu povinný — na e-mail půjde potvrzení a odkaz na zrušení (F2). Po telefonu ne.
+  if (requireEmail && !email) throw new HttpsError("invalid-argument", "Vyplňte prosím e-mail — pošleme na něj potvrzení rezervace.");
   if (service.type === "home" && !address) throw new HttpsError("invalid-argument", "U návrhu doma vyplňte prosím adresu.");
   return { client: { name, phone, email }, address, note: cut(input.note) };
 }
@@ -250,7 +252,7 @@ async function createBooking(input, { source, actor, internal }) {
   const studio = validateStudio(service, input.studio);
   const region = validateRegion(service, input.region, cfg);
   const start = validateStart(input.start);
-  const { client, address, note } = validateClient(input, service);
+  const { client, address, note } = validateClient(input, service, { requireEmail: !internal });
   const ignoreLead = internal && input.ignoreLead === true;
 
   if (!internal && cfg.maxActivePerPhone > 0) {
@@ -317,7 +319,8 @@ async function createBooking(input, { source, actor, internal }) {
     await writeWithLock(db, { designerSlug: designer.slug, start, end, bufferMin: svc.bufferMin, travelMin: effectiveTravel(cfg, designer), serviceType: service.type }, (tx, day) => {
       tx.create(ref, { ...booking, dayKey: day });
     });
-    return { id: ref.id, ...booking, designerName: designer.name };
+    // Pracovní kontakt designéra jen pro děkovnou stránku klienta (ne osobní telefon).
+    return { id: ref.id, ...booking, designerName: designer.name, designerContact: { phone: designer.phone || "", email: designer.email || "" } };
   }
   throw new HttpsError("failed-precondition", "Tento termín už není volný. Vyberte prosím jiný.");
 }
@@ -496,7 +499,8 @@ exports.volneTerminy = onRequest({ region: REGION, maxInstances: 5, cors: PUBLIC
     const nextFree = {};
     for (const sl of all) if (!nextFree[sl.designerSlug]) nextFree[sl.designerSlug] = sl.start.toISOString();
     const list = designers
-      .map((d) => ({ ...publicProfile(d), nextSlot: nextFree[d.slug] || null }))
+      // durationMin: délka u tohoto designéra (může mít vlastní) — klient vidí „od–do“.
+      .map((d) => ({ ...publicProfile(d), durationMin: effectiveService(service, d).durationMin, nextSlot: nextFree[d.slug] || null }))
       .sort((x, y) => (x.nextSlot || "9").localeCompare(y.nextSlot || "9") || x.name.localeCompare(y.name, "cs"));
 
     const chosen = designerSlug ? all.filter((sl) => sl.designerSlug === designerSlug) : all;
@@ -549,6 +553,8 @@ exports.vytvoritRezervaci = onRequest({ region: REGION, maxInstances: 5, cors: P
       start: booking.start.toDate().toISOString(),
       end: booking.end.toDate().toISOString(),
       designerName: booking.designerName,
+      designerPhone: booking.designerContact?.phone || "",
+      designerEmail: booking.designerContact?.email || "",
     });
   } catch (err) {
     sendError(res, err);

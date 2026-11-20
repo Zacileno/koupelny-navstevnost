@@ -105,6 +105,12 @@ async function init() {
     $('newBtn').addEventListener('click', openNew);
     $('modalClose').addEventListener('click', closeModal);
     $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+    // Odkaz z Můj kalendář: ?id=<rezervace>[&kdy=past] → rovnou otevřít detail.
+    const deep = new URLSearchParams(location.search);
+    if (deep.get('id')) {
+        openId = deep.get('id');
+        if (deep.get('kdy') === 'past') $('fWhen').value = 'past';
+    }
     subscribe();
 }
 
@@ -113,6 +119,7 @@ function subscribe() {
         const past = $('fWhen').value === 'past';
         bookings = demoBookings().filter(b => past ? b.start < new Date() : b.end > new Date()).sort((a, b) => past ? b.start - a.start : a.start - b.start);
         render();
+        if (openId) renderDetail();
         return;
     }
     unsub?.();

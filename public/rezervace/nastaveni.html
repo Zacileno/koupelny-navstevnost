@@ -70,10 +70,16 @@
     <div class="btn-row"><button class="btn btn--primary" id="saveConfig">Uložit studia a obecné</button></div>
 
     <div class="section-h">Vložení na web</div>
-    <p class="hint" style="margin-bottom:8px">Vlož tenhle kód do HTML bloku na stránce webu (nadpis, menu a patička zůstanou webu). Výška se přizpůsobuje sama. Parametry z adresy stránky (UTM, <code>?designer=</code>, <code>?sluzba=</code>, <code>?studio=</code>) se předají do formuláře. Pro konkrétního designéra nebo službu stačí na stránce webu do kódu dopsat <code>data-designer="slug"</code> / <code>data-sluzba="id"</code>.</p>
-    <div class="card"><textarea class="snippet" id="embedSnippet" readonly></textarea>
+    <p class="hint" style="margin-bottom:8px">Vlož kód do HTML bloku na stránce webu — nadpis, menu a patička zůstanou webu, formulář si sám nastaví výšku (šířka max. 820 px). <strong>Bez výběru níž</strong> si klient vybere všechno sám (obecná stránka „Rezervace“). <strong>S výběrem</strong> je formulář pro konkrétní stránku webu: např. stránka Showroom Brno → studio Brno (klient vybírá jen službu, designéra a termín), profil designéra → jen jeho služby a termíny, landing page kampaně → rovnou služba. UTM z adresy stránky se předají samy.</p>
+    <div class="card">
+        <div class="row2" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px">
+            <div class="form-group"><label>Služba</label><select id="embSluzba"><option value="">— klient vybere —</option></select></div>
+            <div class="form-group"><label>Studio / oblast</label><select id="embStudio"><option value="">— klient vybere —</option></select></div>
+            <div class="form-group"><label>Designér</label><select id="embDesigner"><option value="">— klient vybere —</option></select></div>
+        </div>
+        <textarea class="snippet" id="embedSnippet" readonly></textarea>
         <div class="btn-row"><button class="btn btn--ghost btn--sm" id="copySnippet">Zkopírovat kód</button>
-        <a class="btn btn--ghost btn--sm" href="../rezervovat/?embed=1&demo=1" target="_blank" rel="noopener">Náhled vloženého formuláře (demo)</a></div></div>
+        <a class="btn btn--ghost btn--sm" id="embPreview" href="../rezervovat/" target="_blank" rel="noopener">Otevřít formulář s tímto výběrem</a></div></div>
 </div>
 
 <script type="module">
@@ -171,10 +177,36 @@ function renderServices() {
         if (type === 'bool') return `<input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}>`;
         return `<input type="${type}" data-k="${key}" value="${escapeHtml(v ?? '')}" ${type === 'number' ? 'min="0"' : ''}>`;
     };
-    $('servicesTbl').innerHTML = `<tr>${SERVICE_COLS.map(c => `<th>${c[1]}&nbsp;${infoIcon(c[3])}</th>`).join('')}<th></th></tr>` +
-        services.map(s => `<tr data-id="${s.id}" ${s._new ? 'data-new' : ''}>${SERVICE_COLS.map(c => `<td>${cell(s, c)}</td>`).join('')}
+    const saved = services.filter(x => !x._new);
+    const move = (s, i) => s._new ? '' : `<div style="display:flex;flex-direction:column;gap:2px">
+        <button class="btn btn--ghost btn--sm" data-move="-1" title="Posunout nahoru" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button class="btn btn--ghost btn--sm" data-move="1" title="Posunout dolů" ${i === saved.length - 1 ? 'disabled' : ''}>↓</button></div>`;
+    $('servicesTbl').innerHTML = `<tr><th>Pořadí&nbsp;${infoIcon('V tomhle pořadí se služby ukazují klientům (zvlášť skupina Ve studiu a U vás doma).')}</th>${SERVICE_COLS.map(c => `<th>${c[1]}&nbsp;${infoIcon(c[3])}</th>`).join('')}<th></th></tr>` +
+        services.map((s, i) => `<tr data-id="${s.id}" ${s._new ? 'data-new' : ''}><td>${move(s, i)}</td>${SERVICE_COLS.map(c => `<td>${cell(s, c)}</td>`).join('')}
             <td><button class="btn btn--ghost btn--sm" data-save>Uložit</button></td></tr>`).join('');
     $('servicesTbl').querySelectorAll('[data-save]').forEach(btn => btn.addEventListener('click', () => saveService(btn.closest('tr'))));
+    $('servicesTbl').querySelectorAll('[data-move]').forEach(btn => btn.addEventListener('click', () => moveService(btn.closest('tr').dataset.id, Number(btn.dataset.move))));
+}
+
+// Posun v pořadí: přečísluje všechny uložené služby (order 1..n) a uloží jen změněné.
+async function moveService(id, dir) {
+    const list = services.filter(x => !x._new);
+    const i = list.findIndex(x => x.id === id), j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    const changed = [];
+    list.forEach((x, k) => { if (x.order !== k + 1) { x.order = k + 1; changed.push(x); } });
+    services = [...list, ...services.filter(x => x._new)];
+    renderServices();
+    renderDesigners();
+    if (DEMO) { showToast('Demo: pořadí by se uložilo'); return; }
+    try {
+        await Promise.all(changed.map(x => setDoc(doc(db, 'res_services', x.id), { order: x.order, updatedAt: Timestamp.now() }, { merge: true })));
+        showToast('Pořadí uloženo', 'success');
+    } catch (err) {
+        console.error(err);
+        showToast('Pořadí se nepodařilo uložit', 'error');
+    }
 }
 
 // Nová služba: řádek v tabulce, ID se vytvoří z názvu při prvním uložení.
@@ -433,8 +465,25 @@ async function saveConfig() {
 
 // ── vložení na web (iframe) ──
 function renderEmbed() {
+    const opt = (v, l) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`;
+    $('embSluzba').insertAdjacentHTML('beforeend', services.filter(x => !x._new && x.active !== false).map(x => opt(x.id, `${x.name} (${TYPE_LABELS[x.type] || x.type})`)).join(''));
+    $('embStudio').insertAdjacentHTML('beforeend', Object.entries(STUDIO_LABELS).map(([k, v]) => opt(k, v)).join(''));
+    $('embDesigner').insertAdjacentHTML('beforeend', Object.entries(users).filter(([, u]) => u.reservations?.enabled)
+        .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'cs')).map(([k, u]) => opt(k, u.name || k)).join(''));
+    ['embSluzba', 'embStudio', 'embDesigner'].forEach(id => $(id).addEventListener('change', buildSnippet));
+    buildSnippet();
+    $('copySnippet').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText($('embedSnippet').value); showToast('Kód zkopírován', 'success'); }
+        catch { $('embedSnippet').select(); showToast('Označeno — zkopíruj Cmd+C'); }
+    });
+}
+
+function buildSnippet() {
     const base = `${location.origin}/rezervovat/`;
-    $('embedSnippet').value = `<div id="ks-rezervace" data-designer="" data-sluzba=""></div>
+    const sel = { sluzba: $('embSluzba').value, studio: $('embStudio').value, designer: $('embDesigner').value };
+    const pv = new URLSearchParams(Object.entries(sel).filter(([, v]) => v));
+    $('embPreview').href = `../rezervovat/?${pv}${DEMO ? '&demo=1' : ''}`;
+    $('embedSnippet').value = `<div id="ks-rezervace" data-sluzba="${sel.sluzba}" data-studio="${sel.studio}" data-designer="${sel.designer}"></div>
 <script>
 (function () {
   var box = document.getElementById('ks-rezervace');
@@ -455,10 +504,6 @@ function renderEmbed() {
   });
 })();
 <\/script>`;
-    $('copySnippet').addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText($('embedSnippet').value); showToast('Kód zkopírován', 'success'); }
-        catch { $('embedSnippet').select(); showToast('Označeno — zkopíruj Cmd+C'); }
-    });
 }
 
 init().catch(err => {

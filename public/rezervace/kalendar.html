@@ -172,6 +172,7 @@ function render() {
     $('week').innerHTML = gridHtml(items);
     $('week').querySelectorAll('[data-add]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); openBlock(null, b.dataset.add); }));
     $('week').querySelectorAll('[data-block]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); openBlock(blocks.find(x => x.id === b.dataset.block)); }));
+    $('week').querySelectorAll('[data-booking]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); openBooking(bookings.find(x => x.id === b.dataset.booking)); }));
     $('week').querySelectorAll('[data-col]').forEach(col => col.addEventListener('click', (e) => {
         if (e.target !== col) return; // klik na blok/rezervaci řeší jejich handler
         const min = H0 * 60 + Math.floor((e.offsetY / HOUR_PX) * 2) * 30; // zaokrouhlit dolů na půlhodinu
@@ -237,10 +238,38 @@ function itemHtml(it) {
     }
     if (it.kind === 'booking') {
         const b = it.data;
-        return `<div class="item item--booking ${b.status}">${time} ${escapeHtml(b.client?.name || '')}
+        return `<div class="item item--booking ${b.status}" data-booking="${b.id}" style="cursor:pointer">${time} ${escapeHtml(b.client?.name || '')}
             <small>${escapeHtml(b.serviceName || '')} · ${escapeHtml(STATUS_LABELS[b.status] || b.status)}</small></div>`;
     }
     return `<div class="item item--busy">${time}<small>Obsazeno (Raynet)</small></div>`;
+}
+
+// ── detail rezervace (jen k nahlédnutí; akce v Přehledu rezervací) ──
+const SOURCE_TEXT = { web: 'Web', phone: 'Telefon', cx: 'CX', lead: 'Lead' };
+function openBooking(b) {
+    if (!b) return;
+    const past = toDate(b.start) < new Date(Date.now() - 864e5);
+    const where = b.serviceType === 'home' ? (b.address || 'u klienta') : `studio ${STUDIO_LABELS[b.studio] || b.studio || ''}`;
+    const phone = b.client?.phone || '';
+    $('modalBody').innerHTML = `
+        <h2>${escapeHtml(b.client?.name || 'Rezervace')}</h2>
+        <p class="hint">${escapeHtml(b.serviceName || '')} · ${escapeHtml(STATUS_LABELS[b.status] || b.status)}</p>
+        <h3>Termín</h3>
+        <dl class="info-grid">
+            <dt>Kdy</dt><dd>${escapeHtml(fmtDay(toDate(b.start)))} ${fmtTime(b.start)}–${fmtTime(b.end)}</dd>
+            <dt>Kde</dt><dd>${escapeHtml(where)}</dd>
+        </dl>
+        <h3>Klient</h3>
+        <dl class="info-grid">
+            <dt>Telefon</dt><dd>${phone ? `<a href="tel:${escapeHtml(phone)}" style="color:var(--blue)">${escapeHtml(phone)}</a>` : '—'}</dd>
+            <dt>E-mail</dt><dd>${b.client?.email ? `<a href="mailto:${escapeHtml(b.client.email)}" style="color:var(--blue)">${escapeHtml(b.client.email)}</a>` : '—'}</dd>
+            <dt>Poznámka</dt><dd>${escapeHtml(b.note || '—')}</dd>
+            <dt>Zdroj</dt><dd>${escapeHtml(SOURCE_TEXT[b.source] || b.source || '')}${b.utm?.campaign ? ` · ${escapeHtml(b.utm.campaign)}` : ''}</dd>
+        </dl>
+        <div class="btn-row" style="margin-top:16px">
+            <a class="btn btn--primary" href="prehled.html?id=${encodeURIComponent(b.id)}${past ? '&kdy=past' : ''}${DEMO ? '&demo=1' : ''}">Potvrdit, přesunout nebo zrušit v Přehledu</a>
+        </div>`;
+    $('modal').classList.add('open');
 }
 
 // ── přidání / úprava bloku ──

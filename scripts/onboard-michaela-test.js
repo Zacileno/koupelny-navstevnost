@@ -17,12 +17,14 @@
  *   bash scripts/with-firebase-adc.sh node scripts/onboard-michaela-test.js --apply         # založit (studio Praha)
  *   bash scripts/with-firebase-adc.sh node scripts/onboard-michaela-test.js --apply --studio brno
  *   bash scripts/with-firebase-adc.sh node scripts/onboard-michaela-test.js --konec --apply # po testu: vypnout rezervace a zablokovat login
+ *   bash scripts/with-firebase-adc.sh node scripts/onboard-michaela-test.js --obnovit --apply # vrátit po --konec
  */
 
 const admin = require('firebase-admin');
 
 const APPLY = process.argv.includes('--apply');
 const END = process.argv.includes('--konec');
+const RESTORE = process.argv.includes('--obnovit');
 const studioArg = process.argv.indexOf('--studio');
 const STUDIO = studioArg > -1 ? process.argv[studioArg + 1] : 'praha';
 const STUDIOS = ['praha', 'brno', 'hradec', 'pardubice'];
@@ -55,6 +57,18 @@ async function end() {
   await ref.update({ 'reservations.enabled': false, 'reservations.manageAll': false });
   if (snap.data().uid) await auth.updateUser(snap.data().uid, { disabled: true });
   console.log('Hotovo. Domluvené rezervace zůstávají, testovací je zruš v Přehledu.');
+}
+
+async function restore() {
+  const ref = db.collection('users').doc(SLUG);
+  const snap = await ref.get();
+  if (!snap.exists) { console.error(`users/${SLUG} neexistuje — založ ho bez --obnovit.`); process.exit(1); }
+  console.log(`${tag}zapnu rezervace (enabled:true, manageAll:true) u users/${SLUG}`);
+  console.log(`${tag}odblokuju login ${EMAIL} (disabled:false)`);
+  if (!APPLY) return console.log('\nNic nezapsáno — pro provedení přidej --apply.');
+  await ref.update({ 'reservations.enabled': true, 'reservations.manageAll': true });
+  if (snap.data().uid) await auth.updateUser(snap.data().uid, { disabled: false });
+  console.log('Hotovo. Michaela se zase přihlásí a klienti ji na webu uvidí.');
 }
 
 async function create() {
@@ -111,4 +125,4 @@ async function create() {
   console.log(`  přímý odkaz: https://koupelny-navstevnost.web.app/rezervovat/?designer=${SLUG}`);
 }
 
-(END ? end() : create()).catch((err) => { console.error(err); process.exit(1); });
+(END ? end() : RESTORE ? restore() : create()).catch((err) => { console.error(err); process.exit(1); });
